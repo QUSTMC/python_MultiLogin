@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MultiLogin - Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        header { background: #fff; padding: 16px 20px; border-bottom: 1px solid #eee; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { font-size: 20px; color: #333; }
+        .header-right { display: flex; align-items: center; gap: 10px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #4a90d9; color: #fff; }
+        .btn-primary:hover { background: #357abd; }
+        .btn-danger { background: #e74c3c; color: #fff; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-warning { background: #f39c12; color: #fff; }
+        .btn-warning:hover { background: #d68910; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .lang-btn { background: none; border: 1px solid #ddd; color: #666; padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; }
+        .lang-btn:hover { background: #f0f0f0; color: #333; }
+        .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
+        .card-header { padding: 12px 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .card-body { padding: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+        th { background: #fafafa; color: #666; font-weight: 600; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-secondary { background: #e2e3e5; color: #383d41; }
+        .actions { display: flex; gap: 6px; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: #fff; border-radius: 8px; width: 480px; max-width: 90vw; }
+        .modal-header { padding: 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h2 { font-size: 18px; }
+        .modal-body { padding: 16px; }
+        .modal-footer { padding: 12px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; margin-bottom: 4px; font-size: 13px; color: #555; }
+        .form-group input, .form-group select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .form-row { display: flex; gap: 12px; }
+        .form-row .form-group { flex: 1; }
+        .form-check { display: flex; align-items: center; gap: 6px; }
+        .form-check input { width: auto; }
+        .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; color: #fff; font-size: 14px; z-index: 200; display: none; }
+        .toast-success { background: #27ae60; }
+        .toast-error { background: #e74c3c; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-online { background: #27ae60; }
+        .status-offline { background: #e74c3c; }
+        .status-unknown { background: #bbb; }
+        .btn-check { background: #6c757d; color: #fff; }
+        .btn-check:hover { background: #5a6268; }
+        .btn-check.loading { opacity: 0.6; pointer-events: none; }
+        .setup-section { margin-bottom: 8px; }
+        .setup-section h3 { font-size: 14px; color: #4a90d9; margin-bottom: 8px; }
+        .setup-section p { font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 6px; }
+        .code-block { background: #1e1e1e; color: #d4d4d4; padding: 12px 14px; border-radius: 6px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; position: relative; overflow-x: auto; margin: 8px 0; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+        .code-block .copy-btn { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #ccc; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 3px; }
+        .code-block .copy-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+        .code-block .copy-btn.copied { background: #27ae60; color: #fff; border-color: #27ae60; }
+        .step-num { display: inline-block; width: 22px; height: 22px; background: #4a90d9; color: #fff; border-radius: 50%; text-align: center; line-height: 22px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+        a { color: #4a90d9; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>MultiLogin Admin</h1>
+        <div class="header-right">
+            <button class="lang-btn" onclick="toggleLang()" id="langBtn">EN</button>
+        </div>
+    </header>
+    <div class="container">
+        <div class="card" id="setupCard">
+            <div class="card-header">
+                <span data-i18n="setupTitle">Server Configuration Guide</span>
+            </div>
+            <div class="card-body">
+                <div class="setup-section">
+                    <h3><span class="step-num">1</span><span data-i18n="step1Title">Download authlib-injector</span></h3>
+                    <p data-i18n="step1Desc">Download the latest authlib-injector from the official site:</p>
+                    <p><a href="https://authlib-injector.yushi.moe/" target="_blank" rel="noopener">https://authlib-injector.yushi.moe/</a></p>
+                </div>
+                <div class="setup-section">
+                    <h3><span class="step-num">2</span><span data-i18n="step2Title">Place the JAR file</span></h3>
+                    <p data-i18n="step2Desc">Put the downloaded authlib-injector JAR into your Minecraft server directory.</p>
+                </div>
+                <div class="setup-section">
+                    <h3><span class="step-num">3</span><span data-i18n="step3Title">Configure JVM startup parameter</span></h3>
+                    <p data-i18n="step3Desc">Add the following parameter to your server startup command (replace the JAR filename if different):</p>
+                    <div class="code-block" id="codeJvm">
+                        <button class="copy-btn" onclick="copyCode('codeJvm', this)" data-i18n="copy">Copy</button>
+                    </div>
+                </div>
+                <div class="setup-section">
+                    <h3><span class="step-num">4</span><span data-i18n="step4Title">Restart the server</span></h3>
+                    <p data-i18n="step4Desc">Restart your Minecraft server. Players will now authenticate through this service.</p>
+                </div>
+                <div class="setup-section">
+                    <h3><span class="step-num">5</span><span data-i18n="step5Title">Configure auth servers above</span></h3>
+                    <p data-i18n="step5Desc">Add your upstream Yggdrasil authentication servers in the table below.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <span data-i18n="authServers">Authentication Servers</span>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-check" onclick="checkAllStatus()" id="btnCheck" data-i18n="checkStatus">Refresh Status</button>
+                    <button class="btn btn-primary" onclick="openAddModal()" data-i18n="addServer">+ Add Server</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <table>
+                    <thead>
+                        <tr>
+                            <th data-i18n="thName">Name</th>
+                            <th>URL</th>
+                            <th data-i18n="thPriority">Priority</th>
+                            <th data-i18n="thConnectivity">Connectivity</th>
+                            <th data-i18n="thStatus">Status</th>
+                            <th data-i18n="thUuid">UUID Strategy</th>
+                            <th data-i18n="thActions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="serverList"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle" data-i18n-add="addServer" data-i18n-edit="editServer">Add Server</h2>
+                <button class="btn btn-sm" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editIndex" value="-1">
+                <div class="form-group">
+                    <label data-i18n="labelName">Name</label>
+                    <input type="text" id="fName" data-i18n-placeholder="phName" placeholder="e.g. LittleSkin">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="labelUrl">hasJoined URL</label>
+                    <input type="text" id="fUrl" data-i18n-placeholder="phUrl" placeholder="https://example.com/.../hasJoined">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label data-i18n="labelPriority">Priority</label>
+                        <input type="number" id="fPriority" value="1" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="labelTimeout">Timeout (ms)</label>
+                        <input type="number" id="fTimeout" value="10000" min="1000">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label data-i18n="labelUuid">UUID Strategy</label>
+                        <select id="fInitUuid">
+                            <option value="online" data-i18n="uuidOnline">online (use upstream UUID)</option>
+                            <option value="offline" data-i18n="uuidOffline">offline (Minecraft offline UUID)</option>
+                            <option value="random" data-i18n="uuidRandom">random</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="labelTrackIp">Track IP</label>
+                        <select id="fTrackIp">
+                            <option value="true" data-i18n="yes">Yes</option>
+                            <option value="false" data-i18n="no">No</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="fEnabled" checked>
+                        <label for="fEnabled" data-i18n="labelEnabled">Enabled</label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeModal()" data-i18n="cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="saveServer()" data-i18n="save">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast toast-success" id="toastSuccess"></div>
+    <div class="toast toast-error" id="toastError"></div>
+
+    <script>
+        const SERVICE_URL = window.location.origin;
+
+        const I18N = {
+            zh: {
+                authServers: '认证服务器', addServer: '+ 添加服务器', editServer: '编辑服务器',
+                thName: '名称', thPriority: '优先级', thConnectivity: '连通性', thStatus: '状态', thUuid: 'UUID 策略', thActions: '操作',
+                labelName: '名称', labelUrl: 'hasJoined URL', labelPriority: '优先级', labelTimeout: '超时 (毫秒)',
+                labelUuid: 'UUID 策略', labelTrackIp: '记录 IP', labelEnabled: '启用',
+                uuidOnline: 'online (使用上游 UUID)', uuidOffline: 'offline (Minecraft 离线 UUID)', uuidRandom: 'random (随机)',
+                yes: '是', no: '否', cancel: '取消', save: '保存',
+                phName: '例如 LittleSkin', phUrl: 'https://example.com/.../hasJoined',
+                enabled: '已启用', disabled: '已禁用', enable: '启用', disable: '禁用',
+                edit: '编辑', delete: '删除',
+                saved: '已保存', deleted: '已删除', error: '错误', nameUrlRequired: '名称和 URL 为必填项',
+                confirmDelete: '确定删除此服务器？', langBtn: 'EN', copy: '复制', copied: '已复制',
+                checkStatus: '刷新状态', checking: '检测中...', online: '在线', offline: '离线', unchecked: '未检测',
+                setupTitle: '服务器配置指南',
+                step1Title: '下载 authlib-injector', step1Desc: '从官方网站下载最新版 authlib-injector：',
+                step2Title: '放置 JAR 文件', step2Desc: '将下载的 authlib-injector JAR 文件放入你的 Minecraft 服务器目录。',
+                step3Title: '配置 JVM 启动参数', step3Desc: '在服务器启动命令中添加以下参数（如果 JAR 文件名不同请替换）：',
+                step4Title: '重启服务器', step4Desc: '重启你的 Minecraft 服务器，玩家将通过此服务进行认证。',
+                step5Title: '配置上方的认证服务器', step5Desc: '在下方表格中添加你的上游 Yggdrasil 认证服务器。',
+            },
+            en: {
+                authServers: 'Authentication Servers', addServer: '+ Add Server', editServer: 'Edit Server',
+                thName: 'Name', thPriority: 'Priority', thConnectivity: 'Connectivity', thStatus: 'Status', thUuid: 'UUID Strategy', thActions: 'Actions',
+                labelName: 'Name', labelUrl: 'hasJoined URL', labelPriority: 'Priority', labelTimeout: 'Timeout (ms)',
+                labelUuid: 'UUID Strategy', labelTrackIp: 'Track IP', labelEnabled: 'Enabled',
+                uuidOnline: 'online (use upstream UUID)', uuidOffline: 'offline (Minecraft offline UUID)', uuidRandom: 'random',
+                yes: 'Yes', no: 'No', cancel: 'Cancel', save: 'Save',
+                phName: 'e.g. LittleSkin', phUrl: 'https://example.com/.../hasJoined',
+                enabled: 'Enabled', disabled: 'Disabled', enable: 'Enable', disable: 'Disable',
+                edit: 'Edit', delete: 'Delete',
+                saved: 'Saved', deleted: 'Deleted', error: 'Error', nameUrlRequired: 'Name and URL required',
+                confirmDelete: 'Delete this server?', langBtn: '中', copy: 'Copy', copied: 'Copied',
+                checkStatus: 'Refresh Status', checking: 'Checking...', online: 'Online', offline: 'Offline', unchecked: 'Unchecked',
+                setupTitle: 'Server Configuration Guide',
+                step1Title: 'Download authlib-injector', step1Desc: 'Download the latest authlib-injector from the official site:',
+                step2Title: 'Place the JAR file', step2Desc: 'Put the downloaded authlib-injector JAR into your Minecraft server directory.',
+                step3Title: 'Configure JVM startup parameter', step3Desc: 'Add the following parameter to your server startup command (replace the JAR filename if different):',
+                step4Title: 'Restart the server', step4Desc: 'Restart your Minecraft server. Players will now authenticate through this service.',
+                step5Title: 'Configure auth servers above', step5Desc: 'Add your upstream Yggdrasil authentication servers in the table below.',
+            }
+        };
+        let lang = localStorage.getItem('multilogin_lang') || 'zh';
+        function t(key) { return (I18N[lang] || I18N.zh)[key] || key; }
+
+        function applyLang() {
+            document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+            document.getElementById('langBtn').textContent = t('langBtn');
+            renderJvmCode();
+            loadServers();
+        }
+        function toggleLang() {
+            lang = lang === 'zh' ? 'en' : 'zh';
+            localStorage.setItem('multilogin_lang', lang);
+            applyLang();
+        }
+
+        function renderJvmCode() {
+            const el = document.getElementById('codeJvm');
+            const btn = el.querySelector('.copy-btn');
+            const codeText = `-javaagent:authlib-injector.jar=${SERVICE_URL}`;
+            el.innerHTML = '';
+            el.appendChild(btn);
+            el.appendChild(document.createTextNode(codeText));
+        }
+
+        function copyCode(blockId, btn) {
+            const block = document.getElementById(blockId);
+            const text = block.textContent.replace(btn.textContent, '').trim();
+            navigator.clipboard.writeText(text).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = t('copied');
+                btn.classList.add('copied');
+                setTimeout(() => { btn.textContent = t('copy'); btn.classList.remove('copied'); }, 1500);
+            });
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const API_KEY = params.get('key') || '';
+        function headers() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY }; }
+
+        let serverStatus = {};
+
+        async function loadServers() {
+            const resp = await fetch('/admin/api/servers', { headers: headers() });
+            if (resp.status === 401) { window.location.href = '/admin/login'; return; }
+            const servers = await resp.json();
+            const tbody = document.getElementById('serverList');
+            tbody.innerHTML = '';
+            servers.forEach((s, i) => {
+                const st = serverStatus[s.name];
+                let connHtml;
+                if (!st) {
+                    connHtml = '<span class="status-dot status-unknown"></span>' + t('unchecked');
+                } else if (st.online) {
+                    connHtml = '<span class="status-dot status-online"></span>' + t('online') + (st.latency_ms != null ? ' (' + st.latency_ms + 'ms)' : '');
+                } else {
+                    connHtml = '<span class="status-dot status-offline"></span>' + t('offline') + (st.error ? ' - ' + esc(st.error) : '');
+                }
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${esc(s.name)}</td>
+                    <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.url)}">${esc(s.url)}</td>
+                    <td>${s.priority}</td>
+                    <td>${connHtml}</td>
+                    <td>${s.enabled ? '<span class="badge badge-success">' + t('enabled') + '</span>' : '<span class="badge badge-secondary">' + t('disabled') + '</span>'}</td>
+                    <td>${s.init_uuid || 'online'}</td>
+                    <td class="actions">
+                        <button class="btn btn-sm btn-warning" onclick="toggleServer(${i})">${s.enabled ? t('disable') : t('enable')}</button>
+                        <button class="btn btn-sm btn-primary" onclick="editServer(${i})">${t('edit')}</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteServer(${i})">${t('delete')}</button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function checkAllStatus() {
+            const btn = document.getElementById('btnCheck');
+            btn.classList.add('loading');
+            btn.textContent = t('checking');
+            try {
+                const resp = await fetch('/admin/api/servers/check', { method: 'POST', headers: headers() });
+                if (resp.ok) {
+                    const results = await resp.json();
+                    results.forEach(r => { serverStatus[r.name] = r; });
+                    loadServers();
+                }
+            } catch (e) {
+                showToast(t('error'), true);
+            } finally {
+                btn.classList.remove('loading');
+                btn.textContent = t('checkStatus');
+            }
+        }
+
+        function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+        function openAddModal() {
+            document.getElementById('editIndex').value = -1;
+            document.getElementById('modalTitle').textContent = t('addServer');
+            document.getElementById('fName').value = '';
+            document.getElementById('fUrl').value = '';
+            document.getElementById('fPriority').value = '';
+            document.getElementById('fTimeout').value = '10000';
+            document.getElementById('fInitUuid').value = 'online';
+            document.getElementById('fTrackIp').value = 'true';
+            document.getElementById('fEnabled').checked = true;
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function editServer(idx) {
+            fetch('/admin/api/servers', { headers: headers() })
+                .then(r => r.json())
+                .then(servers => {
+                    const s = servers[idx];
+                    document.getElementById('editIndex').value = idx;
+                    document.getElementById('modalTitle').textContent = t('editServer');
+                    document.getElementById('fName').value = s.name || '';
+                    document.getElementById('fUrl').value = s.url || '';
+                    document.getElementById('fPriority').value = s.priority || 1;
+                    document.getElementById('fTimeout').value = s.timeout || 10000;
+                    document.getElementById('fInitUuid').value = s.init_uuid || 'online';
+                    document.getElementById('fTrackIp').value = s.track_ip !== false ? 'true' : 'false';
+                    document.getElementById('fEnabled').checked = s.enabled !== false;
+                    document.getElementById('modal').classList.add('active');
+                });
+        }
+
+        function closeModal() { document.getElementById('modal').classList.remove('active'); }
+
+        async function saveServer() {
+            const idx = parseInt(document.getElementById('editIndex').value);
+            const data = {
+                name: document.getElementById('fName').value.trim(),
+                url: document.getElementById('fUrl').value.trim(),
+                priority: parseInt(document.getElementById('fPriority').value) || 1,
+                timeout: parseInt(document.getElementById('fTimeout').value) || 10000,
+                init_uuid: document.getElementById('fInitUuid').value,
+                track_ip: document.getElementById('fTrackIp').value === 'true',
+                enabled: document.getElementById('fEnabled').checked,
+            };
+            if (!data.name || !data.url) { showToast(t('nameUrlRequired'), true); return; }
+            let resp;
+            if (idx >= 0) { resp = await fetch(`/admin/api/servers/${idx}`, { method: 'PUT', headers: headers(), body: JSON.stringify(data) }); }
+            else { resp = await fetch('/admin/api/servers', { method: 'POST', headers: headers(), body: JSON.stringify(data) }); }
+            if (resp.ok) { closeModal(); loadServers(); showToast(t('saved')); }
+            else { showToast(t('error'), true); }
+        }
+
+        async function deleteServer(idx) {
+            if (!confirm(t('confirmDelete'))) return;
+            const resp = await fetch(`/admin/api/servers/${idx}`, { method: 'DELETE', headers: headers() });
+            if (resp.ok) { loadServers(); showToast(t('deleted')); }
+        }
+
+        async function toggleServer(idx) {
+            const resp = await fetch(`/admin/api/servers/${idx}/toggle`, { method: 'POST', headers: headers() });
+            if (resp.ok) { loadServers(); }
+        }
+
+        function showToast(msg, isError) {
+            const el = isError ? document.getElementById('toastError') : document.getElementById('toastSuccess');
+            el.textContent = msg;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 2000);
+        }
+
+        applyLang();
+    </script>
+</body>
+</html>
