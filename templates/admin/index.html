@@ -7,7 +7,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 940px; margin: 0 auto; padding: 20px; }
         header { background: #fff; padding: 16px 20px; border-bottom: 1px solid #eee; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         header h1 { font-size: 20px; color: #333; }
         .header-right { display: flex; align-items: center; gap: 10px; }
@@ -65,6 +65,10 @@
         .step-num { display: inline-block; width: 22px; height: 22px; background: #4a90d9; color: #fff; border-radius: 50%; text-align: center; line-height: 22px; font-size: 12px; font-weight: 600; margin-right: 6px; }
         a { color: #4a90d9; text-decoration: none; }
         a:hover { text-decoration: underline; }
+        .drag-handle { cursor: grab; color: #aaa; font-size: 16px; user-select: none; padding: 0 4px; }
+        .drag-handle:hover { color: #666; }
+        tr.dragging { opacity: 0.4; background: #e8f0fe; }
+        tr.drag-over { border-top: 2px solid #4a90d9; }
     </style>
 </head>
 <body>
@@ -119,6 +123,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th style="width:30px"></th>
                             <th data-i18n="thName">Name</th>
                             <th>URL</th>
                             <th data-i18n="thPriority">Priority</th>
@@ -268,7 +273,6 @@
             const block = document.getElementById(blockId);
             const text = block.textContent.replace(btn.textContent, '').trim();
             navigator.clipboard.writeText(text).then(() => {
-                const orig = btn.textContent;
                 btn.textContent = t('copied');
                 btn.classList.add('copied');
                 setTimeout(() => { btn.textContent = t('copy'); btn.classList.remove('copied'); }, 1500);
@@ -280,14 +284,20 @@
         function headers() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY }; }
 
         let serverStatus = {};
+        let cachedServers = [];
 
         async function loadServers() {
             const resp = await fetch('/admin/api/servers', { headers: headers() });
             if (resp.status === 401) { window.location.href = '/admin/login'; return; }
-            const servers = await resp.json();
+            cachedServers = await resp.json();
+            cachedServers.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+            renderServerList();
+        }
+
+        function renderServerList() {
             const tbody = document.getElementById('serverList');
             tbody.innerHTML = '';
-            servers.forEach((s, i) => {
+            cachedServers.forEach((s, i) => {
                 const st = serverStatus[s.name];
                 let connHtml;
                 if (!st) {
@@ -298,9 +308,12 @@
                     connHtml = '<span class="status-dot status-offline"></span>' + t('offline') + (st.error ? ' - ' + esc(st.error) : '');
                 }
                 const tr = document.createElement('tr');
+                tr.draggable = true;
+                tr.dataset.idx = i;
                 tr.innerHTML = `
+                    <td><span class="drag-handle" title="Drag to reorder">⠿</span></td>
                     <td>${esc(s.name)}</td>
-                    <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.url)}">${esc(s.url)}</td>
+                    <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.url)}">${esc(s.url)}</td>
                     <td>${s.priority}</td>
                     <td>${connHtml}</td>
                     <td>${s.enabled ? '<span class="badge badge-success">' + t('enabled') + '</span>' : '<span class="badge badge-secondary">' + t('disabled') + '</span>'}</td>
@@ -310,8 +323,60 @@
                         <button class="btn btn-sm btn-primary" onclick="editServer(${i})">${t('edit')}</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteServer(${i})">${t('delete')}</button>
                     </td>`;
+                tr.addEventListener('dragstart', onDragStart);
+                tr.addEventListener('dragover', onDragOver);
+                tr.addEventListener('dragleave', onDragLeave);
+                tr.addEventListener('drop', onDrop);
+                tr.addEventListener('dragend', onDragEnd);
                 tbody.appendChild(tr);
             });
+        }
+
+        let dragIdx = null;
+
+        function onDragStart(e) {
+            dragIdx = parseInt(this.dataset.idx);
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', dragIdx);
+        }
+
+        function onDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            this.classList.add('drag-over');
+        }
+
+        function onDragLeave(e) {
+            this.classList.remove('drag-over');
+        }
+
+        function onDrop(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            const dropIdx = parseInt(this.dataset.idx);
+            if (dragIdx === null || dragIdx === dropIdx) return;
+
+            const item = cachedServers.splice(dragIdx, 1)[0];
+            cachedServers.splice(dropIdx, 0, item);
+            cachedServers.forEach((s, i) => { s.priority = i + 1; });
+            renderServerList();
+            saveOrder();
+        }
+
+        function onDragEnd(e) {
+            this.classList.remove('dragging');
+            dragIdx = null;
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        }
+
+        async function saveOrder() {
+            const ordered = cachedServers.map(s => ({ name: s.name, url: s.url }));
+            const resp = await fetch('/admin/api/servers/reorder', {
+                method: 'POST', headers: headers(), body: JSON.stringify({ order: ordered })
+            });
+            if (resp.ok) showToast(t('saved'));
+            else showToast(t('error'), true);
         }
 
         async function checkAllStatus() {
@@ -323,7 +388,7 @@
                 if (resp.ok) {
                     const results = await resp.json();
                     results.forEach(r => { serverStatus[r.name] = r; });
-                    loadServers();
+                    renderServerList();
                 }
             } catch (e) {
                 showToast(t('error'), true);
@@ -340,7 +405,7 @@
             document.getElementById('modalTitle').textContent = t('addServer');
             document.getElementById('fName').value = '';
             document.getElementById('fUrl').value = '';
-            document.getElementById('fPriority').value = '';
+            document.getElementById('fPriority').value = cachedServers.length + 1;
             document.getElementById('fTimeout').value = '10000';
             document.getElementById('fInitUuid').value = 'online';
             document.getElementById('fTrackIp').value = 'true';
@@ -349,21 +414,17 @@
         }
 
         function editServer(idx) {
-            fetch('/admin/api/servers', { headers: headers() })
-                .then(r => r.json())
-                .then(servers => {
-                    const s = servers[idx];
-                    document.getElementById('editIndex').value = idx;
-                    document.getElementById('modalTitle').textContent = t('editServer');
-                    document.getElementById('fName').value = s.name || '';
-                    document.getElementById('fUrl').value = s.url || '';
-                    document.getElementById('fPriority').value = s.priority || 1;
-                    document.getElementById('fTimeout').value = s.timeout || 10000;
-                    document.getElementById('fInitUuid').value = s.init_uuid || 'online';
-                    document.getElementById('fTrackIp').value = s.track_ip !== false ? 'true' : 'false';
-                    document.getElementById('fEnabled').checked = s.enabled !== false;
-                    document.getElementById('modal').classList.add('active');
-                });
+            const s = cachedServers[idx];
+            document.getElementById('editIndex').value = idx;
+            document.getElementById('modalTitle').textContent = t('editServer');
+            document.getElementById('fName').value = s.name || '';
+            document.getElementById('fUrl').value = s.url || '';
+            document.getElementById('fPriority').value = s.priority || 1;
+            document.getElementById('fTimeout').value = s.timeout || 10000;
+            document.getElementById('fInitUuid').value = s.init_uuid || 'online';
+            document.getElementById('fTrackIp').value = s.track_ip !== false ? 'true' : 'false';
+            document.getElementById('fEnabled').checked = s.enabled !== false;
+            document.getElementById('modal').classList.add('active');
         }
 
         function closeModal() { document.getElementById('modal').classList.remove('active'); }
