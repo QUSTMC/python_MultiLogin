@@ -6,6 +6,7 @@
 
 - 多个 Yggdrasil 认证服务器共存（官方 Mojang、LittleSkin、自定义等）
 - 回访玩家自动路由到上次认证源，新玩家按优先级顺序尝试
+- **皮肤修复** — 通过 MineSkin API 重新签名皮肤，解决跨站皮肤显示问题
 - Web 管理界面（中英文切换）
 - 拖动排序认证服务器优先级
 - 上游服务器连通性检测（在线/离线、延迟）
@@ -72,15 +73,45 @@ chmod +x start.sh && ./start.sh
 
 其他 BlessingSkin 站点通常为：`https://站点地址/api/yggdrasil/sessionserver/session/minecraft/hasJoined`
 
-## 跨站皮肤显示
+## 皮肤修复
 
-不同认证服务器的玩家之间可能无法看到对方的皮肤，这是因为部分皮肤站（如 MUA）的皮肤纹理 URL 无效或使用了自定义签名机制。
+不同认证服务器的玩家之间可能无法看到对方的皮肤，这是因为部分皮肤站的皮肤纹理 URL 无效或使用了自定义签名机制。
 
-**解决方案：** 在 Minecraft 服务器上安装 [SkinsRestorer](https://github.com/SkinsRestorer/SkinsRestorer) 插件，它可以修复跨站皮肤显示问题。
+本服务内置了基于 [MineSkin](https://mineskin.org/) 的皮肤修复功能，可以自动将非 Mojang 签名的皮肤重新签名。
+
+### 配置方式
+
+在 Web 管理界面的 **皮肤修复** 区域：
+
+| 选项 | 说明 |
+|------|------|
+| 关闭 | 不修复皮肤 |
+| 登录时（同步） | 阻塞登录直到修复完成，玩家立即看到正确皮肤 |
+| 异步（后台） | 后台修复，本次登录可能看不到，下次登录可用缓存 |
+
+| 方法 | 说明 |
+|------|------|
+| URL | MineSkin 直接从 URL 获取皮肤（快，但可能因网络问题失败） |
+| 上传 | 先下载皮肤图片再上传到 MineSkin（可靠，推荐） |
+
+已修复的皮肤会缓存到数据库，后续登录直接使用缓存，无需重复调用 API。
+
+### 工作流程
 
 ```
-# 在服务器的 plugins 目录放入 SkinsRestorer.jar
-# 重启服务器即可
+玩家登录 → hasJoined 返回档案
+  ↓
+检查皮肤 URL 是否为非 Mojang 来源
+  ↓
+查询数据库缓存 → 有缓存则直接使用
+  ↓
+无缓存 → 调用 MineSkin API 修复
+  ├─ URL 方式：MineSkin 从 URL 获取
+  └─ 上传方式：先下载再上传（URL 方式失败时自动 fallback）
+  ↓
+缓存结果到数据库
+  ↓
+返回 Mojang 签名的皮肤数据
 ```
 
 ## 认证流程
@@ -104,12 +135,14 @@ authlib-injector → 本服务 /authserver/authenticate
 MC 服务器 → 本服务 /sessionserver/session/minecraft/hasJoined
   │  根据缓存查询对应的上游服务器
   │  记录 (UUID → 认证源) 到数据库（用于皮肤查询）
+  │  皮肤修复（如果启用）
   │
   │  profile (皮肤查询)
   ▼
 MC 服务器 → 本服务 /sessionserver/session/minecraft/profile/<uuid>
   │  优先查数据库找到该 UUID 对应的上游服务器
   │  直接从正确的服务器获取皮肤数据
+  │  皮肤修复（如果启用）
 ```
 
 ## 项目结构
@@ -118,9 +151,10 @@ MC 服务器 → 本服务 /sessionserver/session/minecraft/profile/<uuid>
 python_MultiLogin/
 ├── app.py              # Flask 入口
 ├── config.py           # YAML 配置读写 + 热更新
-├── database.py         # SQLite 数据库（玩家映射、UUID 映射）
+├── database.py         # SQLite 数据库（玩家映射、UUID 映射、皮肤缓存）
 ├── auth_key.py         # Access Key 生成/验证
 ├── upstream.py         # 上游 Yggdrasil 异步调用 + URL 推导
+├── skin_restorer.py    # 皮肤修复（MineSkin API 调用 + 缓存）
 ├── start.bat           # Windows 启动脚本
 ├── start.py            # 跨平台启动脚本
 ├── start.sh            # Linux/Mac 启动脚本
@@ -131,7 +165,7 @@ python_MultiLogin/
 │   ├── session.py      # /sessionserver/* 会话路由（join/hasJoined/profile）
 │   └── admin.py        # /admin/* 管理界面 API
 └── templates/admin/
-    ├── index.html      # 管理页面（拖动排序、状态检测）
+    ├── index.html      # 管理页面（拖动排序、状态检测、皮肤修复设置）
     └── login.html      # 登录页面
 ```
 
@@ -144,6 +178,9 @@ server:
   host: "0.0.0.0"
   port: 8080
   access_key: "自动生成的 key"
+
+skin_restorer: "off"        # off / login / async
+skin_restorer_method: "url"  # url / upload
 
 auth_servers:
   - name: "LittleSkin"
@@ -165,13 +202,14 @@ auth_servers:
 
 ## 数据库
 
-SQLite 自动创建于 `data/data.db`，包含三张表：
+SQLite 自动创建于 `data/data.db`，包含四张表：
 
 | 表 | 用途 |
 |----|------|
 | `player_service_map` | 玩家名 → 认证源映射（回访路由） |
 | `uuid_service_map` | UUID → 认证源映射（跨站皮肤查询） |
 | `in_game_profile` | 游戏内档案（UUID 策略） |
+| `skin_cache` | 皮肤修复缓存（MineSkin 签名结果） |
 
 ## 依赖
 

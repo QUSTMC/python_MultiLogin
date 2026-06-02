@@ -101,6 +101,34 @@
             </div>
         </div>
 
+        <div class="card">
+            <div class="card-header">
+                <span data-i18n="skinRestorerTitle">Skin Restorer</span>
+            </div>
+            <div class="card-body">
+                <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="skinRestorerDesc">Fix cross-server skin visibility by re-signing skins through MineSkin API.</p>
+                <div class="settings-row">
+                    <div class="form-group">
+                        <label data-i18n="skinRestorerMode">Mode</label>
+                        <select id="sSkinRestorer">
+                            <option value="off" data-i18n="srOff">Off</option>
+                            <option value="login" data-i18n="srLogin">Login (sync, blocks until done)</option>
+                            <option value="async" data-i18n="srAsync">Async (background, next login)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="skinRestorerMethod">Method</label>
+                        <select id="sSkinRestorerMethod">
+                            <option value="url" data-i18n="srMethodUrl">URL (MineSkin fetches from URL)</option>
+                            <option value="upload" data-i18n="srMethodUpload">Upload (send skin bytes)</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save</button>
+                </div>
+                <p style="margin-top:10px;font-size:12px;color:#999" data-i18n="skinRestorerNote">Cached skins are stored in the database and reused for future logins.</p>
+            </div>
+        </div>
+
         <div class="card" id="setupCard">
             <div class="card-header">
                 <span data-i18n="setupTitle">Server Configuration Guide</span>
@@ -240,6 +268,10 @@
                 checkStatus: '刷新状态', checking: '检测中...', online: '在线', offline: '离线', unchecked: '未检测',
                 settingsTitle: '服务器设置', settingsHost: '监听地址', settingsPort: '端口',
                 settingsSave: '保存设置', settingsNote: '注意：修改端口后需要手动重启服务才能生效。',
+                skinRestorerTitle: '皮肤修复', skinRestorerDesc: '通过 MineSkin API 重新签名皮肤，解决跨站皮肤显示问题。',
+                skinRestorerMode: '模式', skinRestorerMethod: '方法', skinRestorerNote: '已修复的皮肤会缓存到数据库，后续登录直接使用缓存。',
+                srOff: '关闭', srLogin: '登录时（同步，阻塞登录）', srAsync: '异步（后台，下次登录生效）',
+                srMethodUrl: 'URL（MineSkin 从 URL 获取）', srMethodUpload: '上传（发送皮肤图片）',
                 setupTitle: '服务器配置指南',
                 step1Title: '下载 authlib-injector', step1Desc: '从官方网站下载最新版 authlib-injector：',
                 step2Title: '放置 JAR 文件', step2Desc: '将下载的 authlib-injector JAR 文件放入你的 Minecraft 服务器目录。',
@@ -262,6 +294,10 @@
                 checkStatus: 'Refresh Status', checking: 'Checking...', online: 'Online', offline: 'Offline', unchecked: 'Unchecked',
                 settingsTitle: 'Server Settings', settingsHost: 'Host', settingsPort: 'Port',
                 settingsSave: 'Save Settings', settingsNote: 'Note: Changing the port requires a manual restart of the service.',
+                skinRestorerTitle: 'Skin Restorer', skinRestorerDesc: 'Re-sign skins through MineSkin API to fix cross-server skin visibility.',
+                skinRestorerMode: 'Mode', skinRestorerMethod: 'Method', skinRestorerNote: 'Restored skins are cached in the database for future logins.',
+                srOff: 'Off', srLogin: 'Login (sync, blocks until done)', srAsync: 'Async (background, next login)',
+                srMethodUrl: 'URL (MineSkin fetches from URL)', srMethodUpload: 'Upload (send skin bytes)',
                 setupTitle: 'Server Configuration Guide',
                 step1Title: 'Download authlib-injector', step1Desc: 'Download the latest authlib-injector from the official site:',
                 step2Title: 'Place the JAR file', step2Desc: 'Put the downloaded authlib-injector JAR into your Minecraft server directory.',
@@ -316,6 +352,8 @@
                 const s = await resp.json();
                 document.getElementById('sHost').value = s.host || '0.0.0.0';
                 document.getElementById('sPort').value = s.port || 8080;
+                document.getElementById('sSkinRestorer').value = s.skin_restorer || 'off';
+                document.getElementById('sSkinRestorerMethod').value = s.skin_restorer_method || 'url';
             }
         }
 
@@ -323,6 +361,8 @@
             const data = {
                 host: document.getElementById('sHost').value.trim(),
                 port: parseInt(document.getElementById('sPort').value) || 8080,
+                skin_restorer: document.getElementById('sSkinRestorer').value,
+                skin_restorer_method: document.getElementById('sSkinRestorerMethod').value,
             };
             const resp = await fetch('/admin/api/settings', { method: 'PUT', headers: headers(), body: JSON.stringify(data) });
             if (resp.ok) showToast(t('saved'));
