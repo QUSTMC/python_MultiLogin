@@ -239,10 +239,7 @@ async def profile_for_uuid(uuid: str) -> dict | None:
         return None
 
     async def try_one(server: dict) -> dict | None:
-        session_base = _derive_session_base_url(server["url"])
-        url = f"{session_base}/minecraft/profile/{uuid}"
-        timeout = server.get("timeout", 10000)
-        return await _request("GET", url, timeout=timeout)
+        return await profile_for_server(server, uuid)
 
     tasks = [try_one(s) for s in servers]
     for coro in asyncio.as_completed(tasks):
@@ -251,6 +248,13 @@ async def profile_for_uuid(uuid: str) -> dict | None:
             return result
 
     return None
+
+
+async def profile_for_server(server: dict, uuid: str) -> dict | None:
+    session_base = _derive_session_base_url(server["url"])
+    url = f"{session_base}/minecraft/profile/{uuid}"
+    timeout = server.get("timeout", 10000)
+    return await _request("GET", url, timeout=timeout)
 
 
 async def check_server_status(server: dict) -> dict:

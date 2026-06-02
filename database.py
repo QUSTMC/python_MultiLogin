@@ -37,6 +37,13 @@ def init_db() -> None:
             in_game_name TEXT,
             PRIMARY KEY (online_uuid, service_id)
         );
+
+        CREATE TABLE IF NOT EXISTS uuid_service_map (
+            uuid TEXT PRIMARY KEY,
+            service_id INTEGER NOT NULL,
+            username TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
 
@@ -88,5 +95,28 @@ def set_in_game_profile(online_uuid: str, service_id: int, in_game_uuid: str, in
                in_game_uuid = excluded.in_game_uuid,
                in_game_name = COALESCE(excluded.in_game_name, in_game_name)""",
         (online_uuid, service_id, in_game_uuid, in_game_name),
+    )
+    conn.commit()
+
+
+def get_service_by_uuid(uuid: str) -> int | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT service_id FROM uuid_service_map WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    return row["service_id"] if row else None
+
+
+def set_uuid_service(uuid: str, service_id: int, username: str | None = None) -> None:
+    conn = _get_conn()
+    conn.execute(
+        """INSERT INTO uuid_service_map (uuid, service_id, username, updated_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(uuid) DO UPDATE SET
+               service_id = excluded.service_id,
+               username = COALESCE(excluded.username, username),
+               updated_at = CURRENT_TIMESTAMP""",
+        (uuid, service_id, username),
     )
     conn.commit()

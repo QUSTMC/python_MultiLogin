@@ -12,6 +12,16 @@ session_bp = Blueprint("session", __name__)
 _join_cache: dict = {}
 
 
+def _get_service_by_priority(service_id: int):
+    from config import get_auth_servers
+    servers = [s for s in get_auth_servers() if s.get("enabled")]
+    return next((s for s in servers if s.get("priority") == service_id), None)
+
+
+def _record_uuid_mapping(uuid: str, service_id: int, username: str | None = None):
+    database.set_uuid_service(uuid, service_id, username)
+
+
 @session_bp.route("/sessionserver/session/minecraft/join", methods=["POST"])
 def join():
     payload = request.get_json(silent=True)
@@ -32,9 +42,7 @@ def join():
         cached = _session_cache.get(username)
         if cached:
             service_id = cached["service_id"]
-            from config import get_auth_servers
-            servers = [s for s in get_auth_servers() if s.get("enabled")]
-            server = next((s for s in servers if s.get("priority") == service_id), None)
+            server = _get_service_by_priority(service_id)
             if server:
                 ok = asyncio.run(upstream.join_for_server(server, payload))
                 if ok:
@@ -72,15 +80,14 @@ def has_joined():
 
     if cached:
         service_id = cached["service_id"]
-        from config import get_auth_servers
-        servers = [s for s in get_auth_servers() if s.get("enabled")]
-        server = next((s for s in servers if s.get("priority") == service_id), None)
+        server = _get_service_by_priority(service_id)
         if server:
             params = {"username": username, "serverId": server_id}
             if server.get("track_ip", True) and ip:
                 params["ip"] = ip
             result = asyncio.run(upstream.hasjoined_for_server(server, params))
             if result and "id" in result:
+                _record_uuid_mapping(result["id"], service_id, username)
                 logger.info(f"HasJoined: {username} via {server['name']}")
                 return jsonify(result)
 
@@ -93,6 +100,8 @@ def has_joined():
             params["ip"] = ip
         result = asyncio.run(upstream.hasjoined_for_server(server, params))
         if result and "id" in result:
+            sid = server.get("priority", 999)
+            _record_uuid_mapping(result["id"], sid, username)
             logger.info(f"HasJoined (fallback): {username} via {server['name']}")
             return jsonify(result)
 
@@ -105,6 +114,15 @@ def has_joined():
 
 @session_bp.route("/sessionserver/session/minecraft/profile/<uuid>", methods=["GET"])
 def profile(uuid: str):
+    service_id = database.get_service_by_uuid(uuid)
+
+    if service_id is not None:
+        server = _get_service_by_priority(service_id)
+        if server:
+            result = asyncio.run(upstream.profile_for_server(server, uuid))
+            if result:
+                return jsonify(result)
+
     result = asyncio.run(upstream.profile_for_uuid(uuid))
     if result:
         return jsonify(result)
