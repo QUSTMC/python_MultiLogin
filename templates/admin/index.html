@@ -65,6 +65,8 @@
         .step-num { display: inline-block; width: 22px; height: 22px; background: #4a90d9; color: #fff; border-radius: 50%; text-align: center; line-height: 22px; font-size: 12px; font-weight: 600; margin-right: 6px; }
         a { color: #4a90d9; text-decoration: none; }
         a:hover { text-decoration: underline; }
+        .settings-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .settings-row .form-group { margin-bottom: 0; min-width: 160px; }
         .drag-handle { cursor: grab; color: #aaa; font-size: 16px; user-select: none; padding: 0 4px; }
         .drag-handle:hover { color: #666; }
         tr.dragging { opacity: 0.4; background: #e8f0fe; }
@@ -79,6 +81,26 @@
         </div>
     </header>
     <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <span data-i18n="settingsTitle">Server Settings</span>
+            </div>
+            <div class="card-body">
+                <div class="settings-row">
+                    <div class="form-group">
+                        <label data-i18n="settingsHost">Host</label>
+                        <input type="text" id="sHost" value="0.0.0.0">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="settingsPort">Port</label>
+                        <input type="number" id="sPort" value="8080" min="1" max="65535">
+                    </div>
+                    <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save & Restart</button>
+                </div>
+                <p style="margin-top:10px;font-size:12px;color:#999" data-i18n="settingsNote">Note: Changing the port requires a manual restart of the service.</p>
+            </div>
+        </div>
+
         <div class="card" id="setupCard">
             <div class="card-header">
                 <span data-i18n="setupTitle">Server Configuration Guide</span>
@@ -216,6 +238,8 @@
                 saved: '已保存', deleted: '已删除', error: '错误', nameUrlRequired: '名称和 URL 为必填项',
                 confirmDelete: '确定删除此服务器？', langBtn: 'EN', copy: '复制', copied: '已复制',
                 checkStatus: '刷新状态', checking: '检测中...', online: '在线', offline: '离线', unchecked: '未检测',
+                settingsTitle: '服务器设置', settingsHost: '监听地址', settingsPort: '端口',
+                settingsSave: '保存设置', settingsNote: '注意：修改端口后需要手动重启服务才能生效。',
                 setupTitle: '服务器配置指南',
                 step1Title: '下载 authlib-injector', step1Desc: '从官方网站下载最新版 authlib-injector：',
                 step2Title: '放置 JAR 文件', step2Desc: '将下载的 authlib-injector JAR 文件放入你的 Minecraft 服务器目录。',
@@ -236,6 +260,8 @@
                 saved: 'Saved', deleted: 'Deleted', error: 'Error', nameUrlRequired: 'Name and URL required',
                 confirmDelete: 'Delete this server?', langBtn: '中', copy: 'Copy', copied: 'Copied',
                 checkStatus: 'Refresh Status', checking: 'Checking...', online: 'Online', offline: 'Offline', unchecked: 'Unchecked',
+                settingsTitle: 'Server Settings', settingsHost: 'Host', settingsPort: 'Port',
+                settingsSave: 'Save Settings', settingsNote: 'Note: Changing the port requires a manual restart of the service.',
                 setupTitle: 'Server Configuration Guide',
                 step1Title: 'Download authlib-injector', step1Desc: 'Download the latest authlib-injector from the official site:',
                 step2Title: 'Place the JAR file', step2Desc: 'Put the downloaded authlib-injector JAR into your Minecraft server directory.',
@@ -252,6 +278,7 @@
             document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
             document.getElementById('langBtn').textContent = t('langBtn');
             renderJvmCode();
+            loadSettings();
             loadServers();
         }
         function toggleLang() {
@@ -282,6 +309,25 @@
         const params = new URLSearchParams(window.location.search);
         const API_KEY = params.get('key') || '';
         function headers() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY }; }
+
+        async function loadSettings() {
+            const resp = await fetch('/admin/api/settings', { headers: headers() });
+            if (resp.ok) {
+                const s = await resp.json();
+                document.getElementById('sHost').value = s.host || '0.0.0.0';
+                document.getElementById('sPort').value = s.port || 8080;
+            }
+        }
+
+        async function saveSettings() {
+            const data = {
+                host: document.getElementById('sHost').value.trim(),
+                port: parseInt(document.getElementById('sPort').value) || 8080,
+            };
+            const resp = await fetch('/admin/api/settings', { method: 'PUT', headers: headers(), body: JSON.stringify(data) });
+            if (resp.ok) showToast(t('saved'));
+            else showToast(t('error'), true);
+        }
 
         let serverStatus = {};
         let cachedServers = [];
