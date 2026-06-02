@@ -16,6 +16,8 @@ DEFAULT_CONFIG = {
         "port": 8080,
         "access_key": "",
     },
+    "skin_restorer": "off",
+    "skin_restorer_method": "url",
     "auth_servers": [
         {
             "name": "LittleSkin",

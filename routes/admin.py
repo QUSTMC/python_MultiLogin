@@ -157,8 +157,14 @@ def reorder_servers():
 @admin_bp.route("/admin/api/settings", methods=["GET"])
 @require_key
 def get_settings():
-    settings = get_server_setting()
-    return jsonify({"host": settings.get("host", "0.0.0.0"), "port": settings.get("port", 8080)})
+    cfg = get_config()
+    server = cfg.get("server", {})
+    return jsonify({
+        "host": server.get("host", "0.0.0.0"),
+        "port": server.get("port", 8080),
+        "skin_restorer": cfg.get("skin_restorer", "off"),
+        "skin_restorer_method": cfg.get("skin_restorer_method", "url"),
+    })
 
 
 @admin_bp.route("/admin/api/settings", methods=["PUT"])
@@ -181,5 +187,16 @@ def update_settings():
         server["host"] = str(data["host"])
 
     cfg["server"] = server
+
+    if "skin_restorer" in data:
+        cfg["skin_restorer"] = str(data["skin_restorer"]).lower()
+    if "skin_restorer_method" in data:
+        cfg["skin_restorer_method"] = str(data["skin_restorer_method"]).lower()
+
     update_config(cfg)
-    return jsonify({"host": server.get("host"), "port": server.get("port")})
+    return jsonify({
+        "host": server.get("host"),
+        "port": server.get("port"),
+        "skin_restorer": cfg.get("skin_restorer", "off"),
+        "skin_restorer_method": cfg.get("skin_restorer_method", "url"),
+    })

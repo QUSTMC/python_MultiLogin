@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 
 import upstream
 import database
+import skin_restorer
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,23 @@ def _enrich_with_skin(profile: dict, server: dict) -> dict:
     if skin and _has_skin_properties(skin):
         profile["properties"] = skin["properties"]
         logger.info(f"Enriched: uuid={uuid[:12]}...")
+    return profile
+
+
+def _apply_skin_restorer(profile: dict) -> dict:
+    from config import get_config
+    cfg = get_config()
+    restorer_mode = cfg.get("skin_restorer", "off").lower()
+
+    if restorer_mode == "off":
+        return profile
+
+    props = profile.get("properties", [])
+    if not any(p.get("name") == "textures" for p in props):
+        return profile
+
+    method = cfg.get("skin_restorer_method", "url").lower()
+    profile["properties"] = skin_restorer.restore_skin(props, method)
     return profile
 
 
@@ -107,6 +125,7 @@ def has_joined():
             if result and "id" in result:
                 _record_uuid_mapping(result["id"], service_id, username)
                 result = _enrich_with_skin(result, server)
+                result = _apply_skin_restorer(result)
                 logger.info(f"HasJoined: {username} via {server['name']}")
                 return jsonify(result)
 
@@ -122,6 +141,7 @@ def has_joined():
             sid = server.get("priority", 999)
             _record_uuid_mapping(result["id"], sid, username)
             result = _enrich_with_skin(result, server)
+            result = _apply_skin_restorer(result)
             logger.info(f"HasJoined (fallback): {username} via {server['name']}")
             return jsonify(result)
 
@@ -141,10 +161,12 @@ def profile(uuid: str):
         if server:
             result = asyncio.run(upstream.profile_for_server(server, uuid))
             if result:
+                result = _apply_skin_restorer(result)
                 return jsonify(result)
 
     result = asyncio.run(upstream.profile_for_uuid(uuid))
     if result:
+        result = _apply_skin_restorer(result)
         return jsonify(result)
 
     return jsonify({}), 204

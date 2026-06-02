@@ -44,7 +44,39 @@ def init_db() -> None:
             username TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS skin_cache (
+            cache_key TEXT PRIMARY KEY,
+            restorer_value TEXT NOT NULL,
+            restorer_signature TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
+    conn.commit()
+
+
+def get_skin_cache(cache_key: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT restorer_value, restorer_signature FROM skin_cache WHERE cache_key = ?",
+        (cache_key,),
+    ).fetchone()
+    if row:
+        return {"value": row["restorer_value"], "signature": row["restorer_signature"]}
+    return None
+
+
+def set_skin_cache(cache_key: str, value: str, signature: str) -> None:
+    conn = _get_conn()
+    conn.execute(
+        """INSERT INTO skin_cache (cache_key, restorer_value, restorer_signature)
+           VALUES (?, ?, ?)
+           ON CONFLICT(cache_key) DO UPDATE SET
+               restorer_value = excluded.restorer_value,
+               restorer_signature = excluded.restorer_signature,
+               created_at = CURRENT_TIMESTAMP""",
+        (cache_key, value, signature),
+    )
     conn.commit()
 
 
