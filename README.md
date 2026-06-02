@@ -6,7 +6,6 @@
 
 - 多个 Yggdrasil 认证服务器共存（官方 Mojang、LittleSkin、自定义等）
 - 回访玩家自动路由到上次认证源，新玩家按优先级顺序尝试
-- 跨站皮肤可见 —— 不同认证源的玩家可以看到彼此的皮肤
 - Web 管理界面（中英文切换）
 - 拖动排序认证服务器优先级
 - 上游服务器连通性检测（在线/离线、延迟）
@@ -72,6 +71,17 @@ chmod +x start.sh && ./start.sh
 | LittleSkin | `https://littleskin.cn/api/yggdrasil/sessionserver/session/minecraft/hasJoined` |
 
 其他 BlessingSkin 站点通常为：`https://站点地址/api/yggdrasil/sessionserver/session/minecraft/hasJoined`
+
+## 跨站皮肤显示
+
+不同认证服务器的玩家之间可能无法看到对方的皮肤，这是因为部分皮肤站（如 MUA）的皮肤纹理 URL 无效或使用了自定义签名机制。
+
+**解决方案：** 在 Minecraft 服务器上安装 [SkinsRestorer](https://github.com/SkinsRestorer/SkinsRestorer) 插件，它可以修复跨站皮肤显示问题。
+
+```
+# 在服务器的 plugins 目录放入 SkinsRestorer.jar
+# 重启服务器即可
+```
 
 ## 认证流程
 
