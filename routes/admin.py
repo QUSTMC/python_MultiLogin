@@ -124,3 +124,31 @@ def check_servers():
 async def _check_all_servers(servers: list) -> list:
     tasks = [check_server_status(s) for s in servers]
     return await asyncio.gather(*tasks)
+
+
+@admin_bp.route("/admin/api/servers/reorder", methods=["POST"])
+@require_key
+def reorder_servers():
+    data = request.get_json(silent=True)
+    if not data or "order" not in data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    order = data["order"]
+    servers = get_auth_servers()
+    server_map = {s.get("name") + "|" + s.get("url"): s for s in servers}
+
+    reordered = []
+    for i, entry in enumerate(order):
+        key = entry.get("name") + "|" + entry.get("url")
+        if key in server_map:
+            s = server_map[key]
+            s["priority"] = i + 1
+            reordered.append(s)
+
+    remaining = [s for s in servers if s not in reordered]
+    for i, s in enumerate(remaining):
+        s["priority"] = len(reordered) + i + 1
+    reordered.extend(remaining)
+
+    update_auth_servers(reordered)
+    return jsonify(reordered)
