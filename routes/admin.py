@@ -3,7 +3,7 @@ import uuid
 from functools import wraps
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for
 
-from config import get_auth_servers, update_auth_servers, get_config, update_config
+from config import get_auth_servers, update_auth_servers, get_config, update_config, get_server_setting
 from auth_key import verify_key
 from upstream import check_server_status
 
@@ -152,3 +152,34 @@ def reorder_servers():
 
     update_auth_servers(reordered)
     return jsonify(reordered)
+
+
+@admin_bp.route("/admin/api/settings", methods=["GET"])
+@require_key
+def get_settings():
+    settings = get_server_setting()
+    return jsonify({"host": settings.get("host", "0.0.0.0"), "port": settings.get("port", 8080)})
+
+
+@admin_bp.route("/admin/api/settings", methods=["PUT"])
+@require_key
+def update_settings():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    cfg = get_config()
+    server = cfg.get("server", {})
+
+    if "port" in data:
+        port = int(data["port"])
+        if port < 1 or port > 65535:
+            return jsonify({"error": "Port must be 1-65535"}), 400
+        server["port"] = port
+
+    if "host" in data:
+        server["host"] = str(data["host"])
+
+    cfg["server"] = server
+    update_config(cfg)
+    return jsonify({"host": server.get("host"), "port": server.get("port")})

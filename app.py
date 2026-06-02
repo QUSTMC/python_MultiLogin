@@ -39,21 +39,22 @@ def main():
     cfg = config.load_config()
     server_cfg = cfg.get("server", {})
 
-    key = load_or_create_key()
-    if not server_cfg.get("access_key"):
+    key = server_cfg.get("access_key")
+    if not key:
+        key = load_or_create_key()
         server_cfg["access_key"] = key
         config.save_config()
-        print("=" * 60)
-        print(f"  Access Key (first run): {key}")
-        print(f"  Admin URL: http://localhost:{server_cfg.get('port', 8080)}/admin/")
-        print("=" * 60)
-    else:
-        logger.info(f"Admin URL: http://localhost:{server_cfg.get('port', 8080)}/admin/")
+
+    port = server_cfg.get("port", 8080)
+
+    print("=" * 60)
+    print(f"  Access Key: {key}")
+    print(f"  Admin URL:  http://localhost:{port}/admin/")
+    print("=" * 60)
 
     database.init_db()
 
     host = server_cfg.get("host", "0.0.0.0")
-    port = server_cfg.get("port", 8080)
 
     logger.info(f"Starting MultiLogin Python on {host}:{port}")
     logger.info(f"Loaded {len(config.get_auth_servers())} auth server(s)")
