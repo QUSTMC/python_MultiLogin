@@ -12,7 +12,7 @@ session_bp = Blueprint("session", __name__)
 _join_cache: dict = {}
 
 
-def _get_service_by_priority(service_id: int):
+def _get_server_by_priority(service_id: int):
     from config import get_auth_servers
     servers = [s for s in get_auth_servers() if s.get("enabled")]
     return next((s for s in servers if s.get("priority") == service_id), None)
@@ -20,6 +20,24 @@ def _get_service_by_priority(service_id: int):
 
 def _record_uuid_mapping(uuid: str, service_id: int, username: str | None = None):
     database.set_uuid_service(uuid, service_id, username)
+
+
+def _has_skin_properties(profile: dict) -> bool:
+    props = profile.get("properties", [])
+    return any(p.get("name") == "textures" for p in props)
+
+
+def _enrich_with_skin(profile: dict, server: dict) -> dict:
+    if _has_skin_properties(profile):
+        return profile
+    uuid = profile.get("id", "")
+    if not uuid:
+        return profile
+    skin = asyncio.run(upstream.profile_for_server(server, uuid))
+    if skin and _has_skin_properties(skin):
+        profile["properties"] = skin["properties"]
+        logger.info(f"Enriched: uuid={uuid[:12]}...")
+    return profile
 
 
 @session_bp.route("/sessionserver/session/minecraft/join", methods=["POST"])
@@ -42,7 +60,7 @@ def join():
         cached = _session_cache.get(username)
         if cached:
             service_id = cached["service_id"]
-            server = _get_service_by_priority(service_id)
+            server = _get_server_by_priority(service_id)
             if server:
                 ok = asyncio.run(upstream.join_for_server(server, payload))
                 if ok:
@@ -80,7 +98,7 @@ def has_joined():
 
     if cached:
         service_id = cached["service_id"]
-        server = _get_service_by_priority(service_id)
+        server = _get_server_by_priority(service_id)
         if server:
             params = {"username": username, "serverId": server_id}
             if server.get("track_ip", True) and ip:
@@ -88,6 +106,7 @@ def has_joined():
             result = asyncio.run(upstream.hasjoined_for_server(server, params))
             if result and "id" in result:
                 _record_uuid_mapping(result["id"], service_id, username)
+                result = _enrich_with_skin(result, server)
                 logger.info(f"HasJoined: {username} via {server['name']}")
                 return jsonify(result)
 
@@ -102,6 +121,7 @@ def has_joined():
         if result and "id" in result:
             sid = server.get("priority", 999)
             _record_uuid_mapping(result["id"], sid, username)
+            result = _enrich_with_skin(result, server)
             logger.info(f"HasJoined (fallback): {username} via {server['name']}")
             return jsonify(result)
 
@@ -117,7 +137,7 @@ def profile(uuid: str):
     service_id = database.get_service_by_uuid(uuid)
 
     if service_id is not None:
-        server = _get_service_by_priority(service_id)
+        server = _get_server_by_priority(service_id)
         if server:
             result = asyncio.run(upstream.profile_for_server(server, uuid))
             if result:
