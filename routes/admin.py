@@ -164,6 +164,7 @@ def get_settings():
         "port": server.get("port", 8080),
         "skin_restorer": cfg.get("skin_restorer", "off"),
         "skin_restorer_method": cfg.get("skin_restorer_method", "url"),
+        "allow_duplicate_names": cfg.get("allow_duplicate_names", False),
     })
 
 
@@ -192,6 +193,8 @@ def update_settings():
         cfg["skin_restorer"] = str(data["skin_restorer"]).lower()
     if "skin_restorer_method" in data:
         cfg["skin_restorer_method"] = str(data["skin_restorer_method"]).lower()
+    if "allow_duplicate_names" in data:
+        cfg["allow_duplicate_names"] = bool(data["allow_duplicate_names"])
 
     update_config(cfg)
     return jsonify({
@@ -199,4 +202,5 @@ def update_settings():
         "port": server.get("port"),
         "skin_restorer": cfg.get("skin_restorer", "off"),
         "skin_restorer_method": cfg.get("skin_restorer_method", "url"),
+        "allow_duplicate_names": cfg.get("allow_duplicate_names", False),
     })
