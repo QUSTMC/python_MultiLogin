@@ -18,6 +18,7 @@ DEFAULT_CONFIG = {
     },
     "skin_restorer": "off",
     "skin_restorer_method": "url",
+    "allow_duplicate_names": False,
     "auth_servers": [
         {
             "name": "LittleSkin",
