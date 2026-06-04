@@ -3,7 +3,7 @@ import uuid
 from functools import wraps
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for
 
-from config import get_auth_servers, update_auth_servers, get_config, update_config, get_server_setting
+from config import get_auth_servers, update_auth_servers, get_config, update_config, get_server_setting, generate_server_id
 from auth_key import verify_key
 from upstream import check_server_status
 
@@ -55,6 +55,8 @@ def add_server():
         return jsonify({"error": "Missing required fields: name, url"}), 400
 
     servers = get_auth_servers()
+
+    data["id"] = generate_server_id(data["name"], data["url"])
 
     if "priority" not in data or data["priority"] is None:
         max_p = max((s.get("priority", 0) for s in servers), default=0)
@@ -135,13 +137,13 @@ def reorder_servers():
 
     order = data["order"]
     servers = get_auth_servers()
-    server_map = {s.get("name") + "|" + s.get("url"): s for s in servers}
+    server_map = {s["id"]: s for s in servers}
 
     reordered = []
     for i, entry in enumerate(order):
-        key = entry.get("name") + "|" + entry.get("url")
-        if key in server_map:
-            s = server_map[key]
+        sid = entry.get("id")
+        if sid and sid in server_map:
+            s = server_map[sid]
             s["priority"] = i + 1
             reordered.append(s)
 

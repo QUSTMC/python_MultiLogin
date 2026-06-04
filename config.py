@@ -1,3 +1,4 @@
+import hashlib
 import os
 import threading
 from ruamel.yaml import YAML
@@ -52,6 +53,25 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+def generate_server_id(name: str, url: str) -> str:
+    raw = f"{name}|{url}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:8]
+
+
+def _ensure_server_ids(servers: list) -> bool:
+    changed = False
+    seen_ids = set()
+    for s in servers:
+        if "id" not in s or not s["id"]:
+            s["id"] = generate_server_id(s.get("name", ""), s.get("url", ""))
+            changed = True
+        if s["id"] in seen_ids:
+            s["id"] = generate_server_id(s.get("name", ""), s.get("url", "") + str(len(seen_ids)))
+            changed = True
+        seen_ids.add(s["id"])
+    return changed
+
+
 def _write_config() -> None:
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -67,6 +87,9 @@ def load_config() -> dict:
             _config = _deep_merge(DEFAULT_CONFIG, _config)
         else:
             _config = DEFAULT_CONFIG.copy()
+        if _ensure_server_ids(_config.get("auth_servers", [])):
+            _write_config()
+        else:
             _write_config()
     return _config
 
@@ -89,6 +112,11 @@ def update_config(new_config: dict) -> None:
 
 def get_auth_servers() -> list:
     return _config.get("auth_servers", [])
+
+
+def get_server_by_id(server_id: str) -> dict | None:
+    servers = _config.get("auth_servers", [])
+    return next((s for s in servers if s.get("id") == server_id), None)
 
 
 def get_server_setting() -> dict:

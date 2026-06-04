@@ -25,14 +25,14 @@ def init_db() -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS player_service_map (
             username TEXT PRIMARY KEY,
-            service_id INTEGER NOT NULL,
+            service_id TEXT NOT NULL,
             online_uuid TEXT,
             last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS in_game_profile (
             online_uuid TEXT NOT NULL,
-            service_id INTEGER NOT NULL,
+            service_id TEXT NOT NULL,
             in_game_uuid TEXT NOT NULL,
             in_game_name TEXT,
             PRIMARY KEY (online_uuid, service_id)
@@ -40,7 +40,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS uuid_service_map (
             uuid TEXT PRIMARY KEY,
-            service_id INTEGER NOT NULL,
+            service_id TEXT NOT NULL,
             username TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -49,6 +49,13 @@ def init_db() -> None:
             cache_key TEXT PRIMARY KEY,
             restorer_value TEXT NOT NULL,
             restorer_signature TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS name_binding (
+            username TEXT PRIMARY KEY,
+            uuid TEXT NOT NULL,
+            service_id TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
@@ -86,7 +93,7 @@ def close_db() -> None:
         _local.conn = None
 
 
-def get_player_service(username: str) -> int | None:
+def get_player_service(username: str) -> str | None:
     conn = _get_conn()
     row = conn.execute(
         "SELECT service_id FROM player_service_map WHERE username = ?",
@@ -95,7 +102,7 @@ def get_player_service(username: str) -> int | None:
     return row["service_id"] if row else None
 
 
-def set_player_service(username: str, service_id: int, online_uuid: str | None = None) -> None:
+def set_player_service(username: str, service_id: str, online_uuid: str | None = None) -> None:
     conn = _get_conn()
     conn.execute(
         """INSERT INTO player_service_map (username, service_id, online_uuid, last_login)
@@ -109,7 +116,7 @@ def set_player_service(username: str, service_id: int, online_uuid: str | None =
     conn.commit()
 
 
-def get_in_game_profile(online_uuid: str, service_id: int) -> dict | None:
+def get_in_game_profile(online_uuid: str, service_id: str) -> dict | None:
     conn = _get_conn()
     row = conn.execute(
         "SELECT * FROM in_game_profile WHERE online_uuid = ? AND service_id = ?",
@@ -118,7 +125,7 @@ def get_in_game_profile(online_uuid: str, service_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def set_in_game_profile(online_uuid: str, service_id: int, in_game_uuid: str, in_game_name: str | None = None) -> None:
+def set_in_game_profile(online_uuid: str, service_id: str, in_game_uuid: str, in_game_name: str | None = None) -> None:
     conn = _get_conn()
     conn.execute(
         """INSERT INTO in_game_profile (online_uuid, service_id, in_game_uuid, in_game_name)
@@ -131,7 +138,7 @@ def set_in_game_profile(online_uuid: str, service_id: int, in_game_uuid: str, in
     conn.commit()
 
 
-def get_service_by_uuid(uuid: str) -> int | None:
+def get_service_by_uuid(uuid: str) -> str | None:
     conn = _get_conn()
     row = conn.execute(
         "SELECT service_id FROM uuid_service_map WHERE uuid = ?",
@@ -140,7 +147,7 @@ def get_service_by_uuid(uuid: str) -> int | None:
     return row["service_id"] if row else None
 
 
-def set_uuid_service(uuid: str, service_id: int, username: str | None = None) -> None:
+def set_uuid_service(uuid: str, service_id: str, username: str | None = None) -> None:
     conn = _get_conn()
     conn.execute(
         """INSERT INTO uuid_service_map (uuid, service_id, username, updated_at)
@@ -152,3 +159,48 @@ def set_uuid_service(uuid: str, service_id: int, username: str | None = None) ->
         (uuid, service_id, username),
     )
     conn.commit()
+
+
+def get_name_binding(username: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT username, uuid, service_id, created_at FROM name_binding WHERE username = ?",
+        (username,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def set_name_binding(username: str, uuid: str, service_id: str) -> None:
+    conn = _get_conn()
+    conn.execute(
+        """INSERT INTO name_binding (username, uuid, service_id, created_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(username) DO NOTHING""",
+        (username, uuid, service_id),
+    )
+    conn.commit()
+
+
+def delete_name_binding(username: str) -> bool:
+    conn = _get_conn()
+    cursor = conn.execute("DELETE FROM name_binding WHERE username = ?", (username,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def search_name_binding(keyword: str) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT username, uuid, service_id, created_at FROM name_binding WHERE username LIKE ? ORDER BY created_at DESC LIMIT 100",
+        (f"%{keyword}%",),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_name_bindings(limit: int = 100, offset: int = 0) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT username, uuid, service_id, created_at FROM name_binding ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]

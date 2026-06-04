@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify
 import upstream
 import database
 import skin_restorer
+import session_store
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +17,12 @@ _online_players: dict = {}  # username -> {service_id, timestamp, uuid}
 ONLINE_TIMEOUT = 300  # seconds
 
 
-def _get_server_by_priority(service_id: int):
-    from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    return next((s for s in servers if s.get("priority") == service_id), None)
+def _get_server_by_id(service_id: str):
+    from config import get_server_by_id
+    return get_server_by_id(service_id)
 
 
-def _record_uuid_mapping(uuid: str, service_id: int, username: str | None = None):
+def _record_uuid_mapping(uuid: str, service_id: str, username: str | None = None):
     database.set_uuid_service(uuid, service_id, username)
 
 
@@ -68,7 +68,7 @@ def _cleanup_expired_players():
         del _online_players[u]
 
 
-def _check_duplicate_name(username: str, service_id: int) -> str | None:
+def _check_duplicate_name(username: str, service_id: str) -> str | None:
     from config import get_config
     cfg = get_config()
     if cfg.get("allow_duplicate_names", False):
@@ -77,15 +77,14 @@ def _check_duplicate_name(username: str, service_id: int) -> str | None:
     _cleanup_expired_players()
     existing = _online_players.get(username.lower())
     if existing and existing["service_id"] != service_id:
-        from config import get_auth_servers
-        servers = [s for s in get_auth_servers() if s.get("enabled")]
-        existing_server = next((s for s in servers if s.get("priority") == existing["service_id"]), None)
-        server_name = existing_server["name"] if existing_server else f"Service {existing['service_id']}"
+        from config import get_server_by_id
+        existing_server = get_server_by_id(existing["service_id"])
+        server_name = existing_server["name"] if existing_server else existing["service_id"]
         return f"Player '{username}' is already online from {server_name}"
     return None
 
 
-def _record_online_player(username: str, service_id: int, uuid: str):
+def _record_online_player(username: str, service_id: str, uuid: str):
     _online_players[username.lower()] = {
         "service_id": service_id,
         "timestamp": time.time(),
@@ -107,23 +106,35 @@ def join():
     server_id = payload.get("selectedServer", "") or payload.get("serverId", "")
     username = ""
 
-    from routes.authserver import _session_cache
-    for uname, cached in _session_cache.items():
-        if cached.get("access_token") == access_token:
-            username = uname
-            break
+    match = session_store.get_by_token(access_token)
+    if match:
+        username, service_id = match
+        server = _get_server_by_id(service_id)
+        if server:
+            ok = asyncio.run(upstream.join_for_server(server, payload))
+            if ok:
+                _join_cache[server_id] = {"service_id": service_id, "username": username}
+                logger.info(f"Join: {username} -> {server['name']} serverId={server_id[:12]}...")
+                return jsonify({}), 204
 
-    if username:
-        cached = _session_cache.get(username)
-        if cached:
-            service_id = cached["service_id"]
-            server = _get_server_by_priority(service_id)
-            if server:
-                ok = asyncio.run(upstream.join_for_server(server, payload))
-                if ok:
-                    _join_cache[server_id] = {"service_id": service_id, "username": username}
-                    logger.info(f"Join: {username} -> {server['name']} serverId={server_id[:12]}...")
-    return jsonify({}), 204
+    from config import get_auth_servers
+    servers = [s for s in get_auth_servers() if s.get("enabled")]
+    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
+    for server in sorted_servers:
+        ok = asyncio.run(upstream.join_for_server(server, payload))
+        if ok:
+            sid = server["id"]
+            _join_cache[server_id] = {"service_id": sid, "username": username}
+            if username:
+                database.set_player_service(username, sid)
+            logger.info(f"Join (fallback): {username} -> {server['name']} serverId={server_id[:12]}...")
+            return jsonify({}), 204
+
+    logger.warning(f"Join failed: serverId={server_id[:12]}...")
+    return jsonify({
+        "error": "ForbiddenOperationException",
+        "errorMessage": "Invalid token.",
+    }), 403
 
 
 @session_bp.route("/sessionserver/session/minecraft/disconnect", methods=["POST"])
@@ -148,25 +159,6 @@ def get_online_players():
         })
     return jsonify(result)
 
-    from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
-    for server in sorted_servers:
-        ok = asyncio.run(upstream.join_for_server(server, payload))
-        if ok:
-            sid = server.get("priority", 999)
-            _join_cache[server_id] = {"service_id": sid, "username": username}
-            if username:
-                database.set_player_service(username, sid)
-            logger.info(f"Join (fallback): {username} -> {server['name']} serverId={server_id[:12]}...")
-            return jsonify({}), 204
-
-    logger.warning(f"Join failed: serverId={server_id[:12]}...")
-    return jsonify({
-        "error": "ForbiddenOperationException",
-        "errorMessage": "Invalid token.",
-    }), 403
-
 
 @session_bp.route("/sessionserver/session/minecraft/hasJoined", methods=["GET"])
 def has_joined():
@@ -178,7 +170,7 @@ def has_joined():
 
     if cached:
         service_id = cached["service_id"]
-        server = _get_server_by_priority(service_id)
+        server = _get_server_by_id(service_id)
         if server:
             dup_error = _check_duplicate_name(username, service_id)
             if dup_error:
@@ -201,7 +193,8 @@ def has_joined():
     servers = [s for s in get_auth_servers() if s.get("enabled")]
     sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
     for server in sorted_servers:
-        dup_error = _check_duplicate_name(username, server.get("priority", 999))
+        sid = server["id"]
+        dup_error = _check_duplicate_name(username, sid)
         if dup_error:
             logger.warning(f"HasJoined blocked (fallback): {dup_error}")
             return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
@@ -211,7 +204,6 @@ def has_joined():
             params["ip"] = ip
         result = asyncio.run(upstream.hasjoined_for_server(server, params))
         if result and "id" in result:
-            sid = server.get("priority", 999)
             _record_uuid_mapping(result["id"], sid, username)
             _record_online_player(username, sid, result["id"])
             result = _enrich_with_skin(result, server)
@@ -231,7 +223,7 @@ def profile(uuid: str):
     service_id = database.get_service_by_uuid(uuid)
 
     if service_id is not None:
-        server = _get_server_by_priority(service_id)
+        server = _get_server_by_id(service_id)
         if server:
             result = asyncio.run(upstream.profile_for_server(server, uuid))
             if result:

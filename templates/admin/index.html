@@ -481,7 +481,7 @@
         }
 
         async function saveOrder() {
-            const ordered = cachedServers.map(s => ({ name: s.name, url: s.url }));
+            const ordered = cachedServers.map(s => ({ id: s.id }));
             const resp = await fetch('/admin/api/servers/reorder', {
                 method: 'POST', headers: headers(), body: JSON.stringify({ order: ordered })
             });
