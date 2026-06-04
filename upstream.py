@@ -11,20 +11,14 @@ logger = logging.getLogger(__name__)
 
 _connector: aiohttp.TCPConnector | None = None
 _session: aiohttp.ClientSession | None = None
-_loop: asyncio.AbstractEventLoop | None = None
 
 _profile_cache: dict[str, tuple[float, dict]] = {}
 PROFILE_CACHE_TTL = 300  # 5 minutes
 
 
 def _get_session() -> aiohttp.ClientSession:
-    global _session, _connector, _loop
-    current_loop = asyncio.get_running_loop()
-    if _session is None or _session.closed or _loop is not current_loop:
-        if _session and not _session.closed:
-            asyncio.ensure_future(_session.close())
-        if _connector:
-            asyncio.ensure_future(_connector.close())
+    global _session, _connector
+    if _session is None or _session.closed:
         _connector = aiohttp.TCPConnector(
             limit=20,
             limit_per_host=5,
@@ -35,7 +29,6 @@ def _get_session() -> aiohttp.ClientSession:
             connector=_connector,
             timeout=aiohttp.ClientTimeout(total=30),
         )
-        _loop = current_loop
     return _session
 
 

@@ -1,7 +1,7 @@
-import asyncio
 import logging
 from flask import Blueprint, request, jsonify
 
+import async_utils
 import upstream
 import database
 import session_store
@@ -18,7 +18,7 @@ def authenticate():
         return jsonify({"error": "ForbiddenOperationException", "errorMessage": "Invalid request"}), 400
 
     username = payload.get("username", "")
-    result, service_id = asyncio.run(upstream.try_authenticate_all(payload))
+    result, service_id = async_utils.run_async(upstream.try_authenticate_all(payload))
 
     if result is None:
         return jsonify({
@@ -48,7 +48,7 @@ def refresh():
         from config import get_server_by_id
         server = get_server_by_id(cached["service_id"])
         if server:
-            result = asyncio.run(upstream.auth_action(server, "refresh", payload))
+            result = async_utils.run_async(upstream.auth_action(server, "refresh", payload))
             if result:
                 session_store.update(username, result.get("accessToken"), result.get("clientToken"))
                 return jsonify(result)
@@ -56,7 +56,7 @@ def refresh():
     from config import get_auth_servers
     servers = sorted([s for s in get_auth_servers() if s.get("enabled")], key=lambda s: s.get("priority", 999))
     for server in servers:
-        result = asyncio.run(upstream.auth_action(server, "refresh", payload))
+        result = async_utils.run_async(upstream.auth_action(server, "refresh", payload))
         if result:
             session_store.record_auth(username, server["id"], result.get("accessToken"), result.get("clientToken"))
             database.set_player_service(username, server["id"])
@@ -81,7 +81,7 @@ def validate():
         from config import get_server_by_id
         server = get_server_by_id(cached["service_id"])
         if server:
-            result = asyncio.run(upstream.auth_action(server, "validate", payload))
+            result = async_utils.run_async(upstream.auth_action(server, "validate", payload))
             if result is not None:
                 return jsonify({}), 204
 
@@ -104,7 +104,7 @@ def invalidate():
             from config import get_server_by_id
             server = get_server_by_id(cached["service_id"])
             if server:
-                asyncio.run(upstream.auth_action(server, "invalidate", payload))
+                async_utils.run_async(upstream.auth_action(server, "invalidate", payload))
 
     return jsonify({}), 204
 
@@ -122,6 +122,6 @@ def signout():
     from config import get_auth_servers
     for server in get_auth_servers():
         if server.get("enabled"):
-            asyncio.run(upstream.auth_action(server, "signout", payload))
+            async_utils.run_async(upstream.auth_action(server, "signout", payload))
 
     return jsonify({}), 204

@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import logging
 import base64
@@ -6,6 +5,7 @@ import json
 
 import aiohttp
 
+import async_utils
 import database
 
 logger = logging.getLogger(__name__)
@@ -120,19 +120,19 @@ def restore_skin(properties: list, method: str = "url") -> list:
         return [new_prop if p.get("name") == "textures" else p for p in properties]
 
     if method == "upload":
-        skin_bytes = asyncio.run(_download_skin(skin_url))
+        skin_bytes = async_utils.run_async(_download_skin(skin_url))
         if skin_bytes:
-            texture = asyncio.run(_call_mineskin_upload(skin_bytes, model))
+            texture = async_utils.run_async(_call_mineskin_upload(skin_bytes, model))
         else:
             logger.warning(f"Failed to download skin for upload: {skin_url[:60]}")
             return properties
     else:
-        texture = asyncio.run(_call_mineskin_url(skin_url, model))
+        texture = async_utils.run_async(_call_mineskin_url(skin_url, model))
         if not texture:
-            skin_bytes = asyncio.run(_download_skin(skin_url))
+            skin_bytes = async_utils.run_async(_download_skin(skin_url))
             if skin_bytes:
                 logger.info(f"URL method failed, trying upload fallback...")
-                texture = asyncio.run(_call_mineskin_upload(skin_bytes, model))
+                texture = async_utils.run_async(_call_mineskin_upload(skin_bytes, model))
 
     if texture:
         database.set_skin_cache(cache_key, texture["value"], texture["signature"])

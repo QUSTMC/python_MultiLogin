@@ -1,10 +1,10 @@
 import atexit
-import asyncio
 import logging
 import sys
 
 from flask import Flask
 
+import async_utils
 import config
 import database
 import upstream
@@ -56,6 +56,7 @@ def main():
     print("=" * 60)
 
     database.init_db()
+    async_utils.start_loop()
 
     host = server_cfg.get("host", "0.0.0.0")
 
@@ -64,7 +65,8 @@ def main():
 
     def shutdown():
         logger.info("Shutting down...")
-        asyncio.run(upstream.close_session())
+        async_utils.run_async(upstream.close_session())
+        async_utils.stop_loop()
         database.close_db()
 
     atexit.register(shutdown)

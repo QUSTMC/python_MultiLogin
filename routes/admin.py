@@ -3,6 +3,7 @@ import uuid
 from functools import wraps
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for
 
+import async_utils
 from config import get_auth_servers, update_auth_servers, get_config, update_config, get_server_setting, generate_server_id
 from auth_key import verify_key
 from upstream import check_server_status
@@ -120,7 +121,7 @@ def check_servers():
     if not servers:
         return jsonify([])
 
-    results = asyncio.run(_check_all_servers(servers))
+    results = async_utils.run_async(_check_all_servers(servers))
     return jsonify(results)
 
 
