@@ -21,4 +21,13 @@ else
 fi
 
 echo "[*] Starting MultiLogin Python..."
-python3 app.py
+if python3 -c "import gunicorn" &>/dev/null; then
+    echo "[+] Using gunicorn (production mode)"
+    python3 -m gunicorn -c gunicorn.conf.py "app:create_app()"
+elif python3 -c "import waitress" &>/dev/null; then
+    echo "[+] Using waitress (production mode)"
+    python3 -c "from app import create_app; from waitress import serve; app = create_app(); serve(app, host='0.0.0.0', port=8080, threads=4)"
+else
+    echo "[!] No production server found, using Flask dev server"
+    python3 app.py
+fi

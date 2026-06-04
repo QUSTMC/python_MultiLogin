@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 from flask import Blueprint, request, jsonify
 
 import upstream
@@ -13,8 +12,6 @@ logger = logging.getLogger(__name__)
 session_bp = Blueprint("session", __name__)
 
 _join_cache: dict = {}
-_online_players: dict = {}  # username -> {service_id, timestamp, uuid}
-ONLINE_TIMEOUT = 300  # seconds
 
 
 def _get_server_by_id(service_id: str):
@@ -61,39 +58,29 @@ def _apply_skin_restorer(profile: dict) -> dict:
     return profile
 
 
-def _cleanup_expired_players():
-    now = time.time()
-    expired = [u for u, d in _online_players.items() if now - d["timestamp"] > ONLINE_TIMEOUT]
-    for u in expired:
-        del _online_players[u]
-
-
-def _check_duplicate_name(username: str, service_id: str) -> str | None:
+def _check_name_binding(username: str, uuid: str) -> str | None:
     from config import get_config
     cfg = get_config()
     if cfg.get("allow_duplicate_names", False):
         return None
 
-    _cleanup_expired_players()
-    existing = _online_players.get(username.lower())
-    if existing and existing["service_id"] != service_id:
-        from config import get_server_by_id
-        existing_server = get_server_by_id(existing["service_id"])
-        server_name = existing_server["name"] if existing_server else existing["service_id"]
-        return f"Player '{username}' is already online from {server_name}"
+    binding = database.get_name_binding(username)
+    if binding is None:
+        return None
+
+    if binding["uuid"] != uuid:
+        return f"该用户名已被其他账号绑定"
     return None
 
 
-def _record_online_player(username: str, service_id: str, uuid: str):
-    _online_players[username.lower()] = {
-        "service_id": service_id,
-        "timestamp": time.time(),
-        "uuid": uuid,
-    }
-
-
-def _remove_online_player(username: str):
-    _online_players.pop(username.lower(), None)
+def _check_ban(username: str, uuid: str) -> str | None:
+    ban = database.is_banned(username, uuid)
+    if ban:
+        reason = ban.get("reason", "")
+        if reason:
+            return f"你已被封禁: {reason}"
+        return "你已被封禁"
+    return None
 
 
 @session_bp.route("/sessionserver/session/minecraft/join", methods=["POST"])
@@ -137,29 +124,6 @@ def join():
     }), 403
 
 
-@session_bp.route("/sessionserver/session/minecraft/disconnect", methods=["POST"])
-def disconnect():
-    data = request.get_json(silent=True)
-    if data and data.get("username"):
-        _remove_online_player(data["username"])
-        logger.info(f"Player disconnected: {data['username']}")
-    return jsonify({}), 204
-
-
-@session_bp.route("/online_players", methods=["GET"])
-def get_online_players():
-    _cleanup_expired_players()
-    result = []
-    for username, info in _online_players.items():
-        result.append({
-            "username": username,
-            "service_id": info["service_id"],
-            "uuid": info["uuid"],
-            "online_since": info["timestamp"],
-        })
-    return jsonify(result)
-
-
 @session_bp.route("/sessionserver/session/minecraft/hasJoined", methods=["GET"])
 def has_joined():
     username = request.args.get("username", "")
@@ -172,18 +136,23 @@ def has_joined():
         service_id = cached["service_id"]
         server = _get_server_by_id(service_id)
         if server:
-            dup_error = _check_duplicate_name(username, service_id)
-            if dup_error:
-                logger.warning(f"HasJoined blocked: {dup_error}")
-                return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
-
             params = {"username": username, "serverId": server_id}
             if server.get("track_ip", True) and ip:
                 params["ip"] = ip
             result = asyncio.run(upstream.hasjoined_for_server(server, params))
             if result and "id" in result:
+                dup_error = _check_name_binding(username, result["id"])
+                if dup_error:
+                    logger.warning(f"HasJoined blocked: {dup_error} (username={username}, uuid={result['id'][:12]}...)")
+                    return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
+
+                ban_error = _check_ban(username, result["id"])
+                if ban_error:
+                    logger.warning(f"HasJoined blocked: banned (username={username}, uuid={result['id'][:12]}...)")
+                    return jsonify({"error": "ForbiddenOperationException", "errorMessage": ban_error}), 403
+
+                database.set_name_binding(username, result["id"], service_id)
                 _record_uuid_mapping(result["id"], service_id, username)
-                _record_online_player(username, service_id, result["id"])
                 result = _enrich_with_skin(result, server)
                 result = _apply_skin_restorer(result)
                 logger.info(f"HasJoined: {username} via {server['name']}")
@@ -193,19 +162,24 @@ def has_joined():
     servers = [s for s in get_auth_servers() if s.get("enabled")]
     sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
     for server in sorted_servers:
-        sid = server["id"]
-        dup_error = _check_duplicate_name(username, sid)
-        if dup_error:
-            logger.warning(f"HasJoined blocked (fallback): {dup_error}")
-            return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
-
         params = {"username": username, "serverId": server_id}
         if server.get("track_ip", True) and ip:
             params["ip"] = ip
         result = asyncio.run(upstream.hasjoined_for_server(server, params))
         if result and "id" in result:
+            sid = server["id"]
+            dup_error = _check_name_binding(username, result["id"])
+            if dup_error:
+                logger.warning(f"HasJoined blocked (fallback): {dup_error} (username={username}, uuid={result['id'][:12]}...)")
+                return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
+
+            ban_error = _check_ban(username, result["id"])
+            if ban_error:
+                logger.warning(f"HasJoined blocked (fallback): banned (username={username}, uuid={result['id'][:12]}...)")
+                return jsonify({"error": "ForbiddenOperationException", "errorMessage": ban_error}), 403
+
+            database.set_name_binding(username, result["id"], sid)
             _record_uuid_mapping(result["id"], sid, username)
-            _record_online_player(username, sid, result["id"])
             result = _enrich_with_skin(result, server)
             result = _apply_skin_restorer(result)
             logger.info(f"HasJoined (fallback): {username} via {server['name']}")

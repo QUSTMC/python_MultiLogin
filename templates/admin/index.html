@@ -7,10 +7,20 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 940px; margin: 0 auto; padding: 20px; }
-        header { background: #fff; padding: 16px 20px; border-bottom: 1px solid #eee; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-        header h1 { font-size: 20px; color: #333; }
+        header { background: #fff; border-bottom: 1px solid #eee; }
+        .header-inner { max-width: 960px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; height: 56px; }
+        header h1 { font-size: 18px; color: #333; }
         .header-right { display: flex; align-items: center; gap: 10px; }
+        .lang-btn { background: none; border: 1px solid #ddd; color: #666; padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; }
+        .lang-btn:hover { background: #f0f0f0; color: #333; }
+        nav { background: #fff; border-bottom: 1px solid #eee; }
+        .nav-inner { max-width: 960px; margin: 0 auto; padding: 0 20px; display: flex; gap: 0; }
+        .nav-tab { padding: 12px 20px; font-size: 14px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; user-select: none; }
+        .nav-tab:hover { color: #333; background: #f9f9f9; }
+        .nav-tab.active { color: #4a90d9; border-bottom-color: #4a90d9; font-weight: 600; }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
         .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
         .btn-primary { background: #4a90d9; color: #fff; }
         .btn-primary:hover { background: #357abd; }
@@ -19,8 +29,9 @@
         .btn-warning { background: #f39c12; color: #fff; }
         .btn-warning:hover { background: #d68910; }
         .btn-sm { padding: 4px 10px; font-size: 12px; }
-        .lang-btn { background: none; border: 1px solid #ddd; color: #666; padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; }
-        .lang-btn:hover { background: #f0f0f0; color: #333; }
+        .btn-check { background: #6c757d; color: #fff; }
+        .btn-check:hover { background: #5a6268; }
+        .btn-check.loading { opacity: 0.6; pointer-events: none; }
         .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
         .card-header { padding: 12px 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
         .card-body { padding: 16px; }
@@ -45,6 +56,8 @@
         .form-row .form-group { flex: 1; }
         .form-check { display: flex; align-items: center; gap: 6px; }
         .form-check input { width: auto; }
+        .settings-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .settings-row .form-group { margin-bottom: 0; min-width: 160px; }
         .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; color: #fff; font-size: 14px; z-index: 200; display: none; }
         .toast-success { background: #27ae60; }
         .toast-error { background: #e74c3c; }
@@ -52,9 +65,10 @@
         .status-online { background: #27ae60; }
         .status-offline { background: #e74c3c; }
         .status-unknown { background: #bbb; }
-        .btn-check { background: #6c757d; color: #fff; }
-        .btn-check:hover { background: #5a6268; }
-        .btn-check.loading { opacity: 0.6; pointer-events: none; }
+        .drag-handle { cursor: grab; color: #aaa; font-size: 16px; user-select: none; padding: 0 4px; }
+        .drag-handle:hover { color: #666; }
+        tr.dragging { opacity: 0.4; background: #e8f0fe; }
+        tr.drag-over { border-top: 2px solid #4a90d9; }
         .setup-section { margin-bottom: 8px; }
         .setup-section h3 { font-size: 14px; color: #4a90d9; margin-bottom: 8px; }
         .setup-section p { font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 6px; }
@@ -65,148 +79,218 @@
         .step-num { display: inline-block; width: 22px; height: 22px; background: #4a90d9; color: #fff; border-radius: 50%; text-align: center; line-height: 22px; font-size: 12px; font-weight: 600; margin-right: 6px; }
         a { color: #4a90d9; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        .settings-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
-        .settings-row .form-group { margin-bottom: 0; min-width: 160px; }
-        .drag-handle { cursor: grab; color: #aaa; font-size: 16px; user-select: none; padding: 0 4px; }
-        .drag-handle:hover { color: #666; }
-        tr.dragging { opacity: 0.4; background: #e8f0fe; }
-        tr.drag-over { border-top: 2px solid #4a90d9; }
     </style>
 </head>
 <body>
     <header>
-        <h1>MultiLogin Admin</h1>
-        <div class="header-right">
-            <button class="lang-btn" onclick="toggleLang()" id="langBtn">EN</button>
+        <div class="header-inner">
+            <h1>MultiLogin Admin</h1>
+            <div class="header-right">
+                <button class="lang-btn" onclick="toggleLang()" id="langBtn">EN</button>
+            </div>
         </div>
     </header>
+    <nav>
+        <div class="nav-inner">
+            <div class="nav-tab active" data-tab="settings" data-i18n="tabSettings">Server Settings</div>
+            <div class="nav-tab" data-tab="servers" data-i18n="tabServers">Auth Servers</div>
+            <div class="nav-tab" data-tab="skin" data-i18n="tabSkin">Skin Restorer</div>
+            <div class="nav-tab" data-tab="names" data-i18n="tabNames">Duplicate Names</div>
+            <div class="nav-tab" data-tab="bans" data-i18n="tabBans">Ban Management</div>
+            <div class="nav-tab" data-tab="guide" data-i18n="tabGuide">Setup Guide</div>
+        </div>
+    </nav>
+
     <div class="container">
-        <div class="card">
-            <div class="card-header">
-                <span data-i18n="settingsTitle">Server Settings</span>
-            </div>
-            <div class="card-body">
-                <div class="settings-row">
-                    <div class="form-group">
-                        <label data-i18n="settingsHost">Host</label>
-                        <input type="text" id="sHost" value="0.0.0.0">
+        <!-- Tab: Server Settings -->
+        <div class="tab-panel active" id="tab-settings">
+            <div class="card">
+                <div class="card-header"><span data-i18n="settingsTitle">Server Settings</span></div>
+                <div class="card-body">
+                    <div class="settings-row">
+                        <div class="form-group">
+                            <label data-i18n="settingsHost">Host</label>
+                            <input type="text" id="sHost" value="0.0.0.0">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="settingsPort">Port</label>
+                            <input type="number" id="sPort" value="8080" min="1" max="65535">
+                        </div>
+                        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save</button>
                     </div>
-                    <div class="form-group">
-                        <label data-i18n="settingsPort">Port</label>
-                        <input type="number" id="sPort" value="8080" min="1" max="65535">
-                    </div>
-                    <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save & Restart</button>
-                </div>
-                <p style="margin-top:10px;font-size:12px;color:#999" data-i18n="settingsNote">Note: Changing the port requires a manual restart of the service.</p>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <span data-i18n="skinRestorerTitle">Skin Restorer</span>
-            </div>
-            <div class="card-body">
-                <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="skinRestorerDesc">Fix cross-server skin visibility by re-signing skins through MineSkin API.</p>
-                <div class="settings-row">
-                    <div class="form-group">
-                        <label data-i18n="skinRestorerMode">Mode</label>
-                        <select id="sSkinRestorer">
-                            <option value="off" data-i18n="srOff">Off</option>
-                            <option value="login" data-i18n="srLogin">Login (sync, blocks until done)</option>
-                            <option value="async" data-i18n="srAsync">Async (background, next login)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label data-i18n="skinRestorerMethod">Method</label>
-                        <select id="sSkinRestorerMethod">
-                            <option value="url" data-i18n="srMethodUrl">URL (MineSkin fetches from URL)</option>
-                            <option value="upload" data-i18n="srMethodUpload">Upload (send skin bytes)</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save</button>
-                </div>
-                <p style="margin-top:10px;font-size:12px;color:#999" data-i18n="skinRestorerNote">Cached skins are stored in the database and reused for future logins.</p>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <span data-i18n="duplicateNamesTitle">Duplicate Names</span>
-            </div>
-            <div class="card-body">
-                <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="duplicateNamesDesc">Control whether players from different auth servers can have the same name online at the same time.</p>
-                <div class="settings-row">
-                    <div class="form-group">
-                        <select id="sDuplicateNames">
-                            <option value="false" data-i18n="blockDuplicates">Block (prevent same name from different servers)</option>
-                            <option value="true" data-i18n="allowDuplicates">Allow (same name can join from different servers)</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save</button>
+                    <p style="margin-top:10px;font-size:12px;color:#999" data-i18n="settingsNote">Note: Changing the port requires a manual restart of the service.</p>
                 </div>
             </div>
         </div>
 
-        <div class="card" id="setupCard">
-            <div class="card-header">
-                <span data-i18n="setupTitle">Server Configuration Guide</span>
-            </div>
-            <div class="card-body">
-                <div class="setup-section">
-                    <h3><span class="step-num">1</span><span data-i18n="step1Title">Download authlib-injector</span></h3>
-                    <p data-i18n="step1Desc">Download the latest authlib-injector from the official site:</p>
-                    <p><a href="https://authlib-injector.yushi.moe/" target="_blank" rel="noopener">https://authlib-injector.yushi.moe/</a></p>
-                </div>
-                <div class="setup-section">
-                    <h3><span class="step-num">2</span><span data-i18n="step2Title">Place the JAR file</span></h3>
-                    <p data-i18n="step2Desc">Put the downloaded authlib-injector JAR into your Minecraft server directory.</p>
-                </div>
-                <div class="setup-section">
-                    <h3><span class="step-num">3</span><span data-i18n="step3Title">Configure JVM startup parameter</span></h3>
-                    <p data-i18n="step3Desc">Add the following parameter to your server startup command (replace the JAR filename if different):</p>
-                    <div class="code-block" id="codeJvm">
-                        <button class="copy-btn" onclick="copyCode('codeJvm', this)" data-i18n="copy">Copy</button>
+        <!-- Tab: Auth Servers -->
+        <div class="tab-panel" id="tab-servers">
+            <div class="card">
+                <div class="card-header">
+                    <span data-i18n="authServers">Authentication Servers</span>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn btn-check" onclick="checkAllStatus()" id="btnCheck" data-i18n="checkStatus">Refresh Status</button>
+                        <button class="btn btn-primary" onclick="openAddModal()" data-i18n="addServer">+ Add Server</button>
                     </div>
                 </div>
-                <div class="setup-section">
-                    <h3><span class="step-num">4</span><span data-i18n="step4Title">Restart the server</span></h3>
-                    <p data-i18n="step4Desc">Restart your Minecraft server. Players will now authenticate through this service.</p>
-                </div>
-                <div class="setup-section">
-                    <h3><span class="step-num">5</span><span data-i18n="step5Title">Configure auth servers above</span></h3>
-                    <p data-i18n="step5Desc">Add your upstream Yggdrasil authentication servers in the table below.</p>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:30px"></th>
+                                <th data-i18n="thName">Name</th>
+                                <th>URL</th>
+                                <th data-i18n="thPriority">Priority</th>
+                                <th data-i18n="thConnectivity">Connectivity</th>
+                                <th data-i18n="thStatus">Status</th>
+                                <th data-i18n="thUuid">UUID Strategy</th>
+                                <th data-i18n="thActions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="serverList"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <span data-i18n="authServers">Authentication Servers</span>
-                <div style="display:flex;gap:8px">
-                    <button class="btn btn-check" onclick="checkAllStatus()" id="btnCheck" data-i18n="checkStatus">Refresh Status</button>
-                    <button class="btn btn-primary" onclick="openAddModal()" data-i18n="addServer">+ Add Server</button>
+        <!-- Tab: Skin Restorer -->
+        <div class="tab-panel" id="tab-skin">
+            <div class="card">
+                <div class="card-header"><span data-i18n="skinRestorerTitle">Skin Restorer</span></div>
+                <div class="card-body">
+                    <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="skinRestorerDesc">Re-sign skins through MineSkin API to fix cross-server skin visibility.</p>
+                    <div class="settings-row">
+                        <div class="form-group">
+                            <label data-i18n="skinRestorerMode">Mode</label>
+                            <select id="sSkinRestorer">
+                                <option value="off" data-i18n="srOff">Off</option>
+                                <option value="login" data-i18n="srLogin">Login (sync, blocks until done)</option>
+                                <option value="async" data-i18n="srAsync">Async (background, next login)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="skinRestorerMethod">Method</label>
+                            <select id="sSkinRestorerMethod">
+                                <option value="url" data-i18n="srMethodUrl">URL (MineSkin fetches from URL)</option>
+                                <option value="upload" data-i18n="srMethodUpload">Upload (send skin bytes)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save</button>
+                    </div>
+                    <p style="margin-top:10px;font-size:12px;color:#999" data-i18n="skinRestorerNote">Cached skins are stored in the database and reused for future logins.</p>
                 </div>
             </div>
-            <div class="card-body">
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width:30px"></th>
-                            <th data-i18n="thName">Name</th>
-                            <th>URL</th>
-                            <th data-i18n="thPriority">Priority</th>
-                            <th data-i18n="thConnectivity">Connectivity</th>
-                            <th data-i18n="thStatus">Status</th>
-                            <th data-i18n="thUuid">UUID Strategy</th>
-                            <th data-i18n="thActions">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="serverList"></tbody>
-                </table>
+        </div>
+
+        <!-- Tab: Duplicate Names -->
+        <div class="tab-panel" id="tab-names">
+            <div class="card">
+                <div class="card-header"><span data-i18n="duplicateNamesTitle">Duplicate Names</span></div>
+                <div class="card-body">
+                    <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="duplicateNamesDesc">When blocked, players are permanently bound to their username on first login.</p>
+                    <div class="settings-row">
+                        <div class="form-group">
+                            <select id="sDuplicateNames">
+                                <option value="false" data-i18n="blockDuplicates">Block (bind username to first UUID)</option>
+                                <option value="true" data-i18n="allowDuplicates">Allow (same name can join from different servers)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settingsSave">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span data-i18n="bindingMgmtTitle">Name Bindings</span>
+                    <button class="btn btn-sm" onclick="loadBindings()" data-i18n="bindingRefresh">Refresh</button>
+                </div>
+                <div class="card-body">
+                    <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="bindingMgmtDesc">Search and manage username-to-UUID bindings. Deleting a binding allows that name to be used by a different account.</p>
+                    <div style="display:flex;gap:8px;margin-bottom:12px">
+                        <input type="text" id="bindingSearch" data-i18n-placeholder="bindingSearchPh" placeholder="Search by username..." style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px">
+                        <button class="btn btn-primary" onclick="searchBindings()" data-i18n="bindingSearchBtn">Search</button>
+                        <button class="btn" onclick="loadBindings()" data-i18n="bindingShowAll">Show All</button>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th data-i18n="bindingUsername">Username</th>
+                                <th>UUID</th>
+                                <th data-i18n="bindingService">Auth Server</th>
+                                <th data-i18n="bindingTime">Bound At</th>
+                                <th data-i18n="bindingActions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bindingList"></tbody>
+                    </table>
+                    <p id="bindingEmpty" style="display:none;text-align:center;color:#999;padding:20px" data-i18n="bindingEmpty">No bindings found</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Ban Management -->
+        <div class="tab-panel" id="tab-bans">
+            <div class="card">
+                <div class="card-header">
+                    <span data-i18n="banTitle">Ban Management</span>
+                    <button class="btn btn-primary" onclick="openAddBanModal()" data-i18n="banAdd">+ Add Ban</button>
+                </div>
+                <div class="card-body">
+                    <p style="font-size:13px;color:#555;margin-bottom:12px" data-i18n="banDesc">Ban players by username or UUID. Banned players cannot join the server.</p>
+                    <div style="display:flex;gap:8px;margin-bottom:12px">
+                        <input type="text" id="banSearch" data-i18n-placeholder="banSearchPh" placeholder="Search by name or UUID..." style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px">
+                        <button class="btn btn-primary" onclick="searchBans()" data-i18n="banSearchBtn">Search</button>
+                        <button class="btn" onclick="loadBans()" data-i18n="banShowAll">Show All</button>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th data-i18n="banTarget">Target</th>
+                                <th data-i18n="banType">Type</th>
+                                <th data-i18n="banReason">Reason</th>
+                                <th data-i18n="banTime">Banned At</th>
+                                <th data-i18n="banActions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="banList"></tbody>
+                    </table>
+                    <p id="banEmpty" style="display:none;text-align:center;color:#999;padding:20px" data-i18n="banEmpty">No bans found</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Setup Guide -->
+        <div class="tab-panel" id="tab-guide">
+            <div class="card">
+                <div class="card-header"><span data-i18n="setupTitle">Server Configuration Guide</span></div>
+                <div class="card-body">
+                    <div class="setup-section">
+                        <h3><span class="step-num">1</span><span data-i18n="step1Title">Download authlib-injector</span></h3>
+                        <p data-i18n="step1Desc">Download the latest authlib-injector from the official site:</p>
+                        <p><a href="https://authlib-injector.yushi.moe/" target="_blank" rel="noopener">https://authlib-injector.yushi.moe/</a></p>
+                    </div>
+                    <div class="setup-section">
+                        <h3><span class="step-num">2</span><span data-i18n="step2Title">Place the JAR file</span></h3>
+                        <p data-i18n="step2Desc">Put the downloaded authlib-injector JAR into your Minecraft server directory.</p>
+                    </div>
+                    <div class="setup-section">
+                        <h3><span class="step-num">3</span><span data-i18n="step3Title">Configure JVM startup parameter</span></h3>
+                        <p data-i18n="step3Desc">Add the following parameter to your server startup command (replace the JAR filename if different):</p>
+                        <div class="code-block" id="codeJvm">
+                            <button class="copy-btn" onclick="copyCode('codeJvm', this)" data-i18n="copy">Copy</button>
+                        </div>
+                    </div>
+                    <div class="setup-section">
+                        <h3><span class="step-num">4</span><span data-i18n="step4Title">Restart the server</span></h3>
+                        <p data-i18n="step4Desc">Restart your Minecraft server. Players will now authenticate through this service.</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- Modal: Add/Edit Server -->
     <div class="modal-overlay" id="modal">
         <div class="modal">
             <div class="modal-header">
@@ -264,6 +348,37 @@
         </div>
     </div>
 
+    <!-- Modal: Add Ban -->
+    <div class="modal-overlay" id="banModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 data-i18n="banAddTitle">Add Ban</h2>
+                <button class="btn btn-sm" onclick="closeBanModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label data-i18n="banTargetLabel">Target (Username or UUID)</label>
+                    <input type="text" id="fBanTarget" data-i18n-placeholder="banTargetPh" placeholder="Enter username or UUID">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="banTypeLabel">Ban Type</label>
+                    <select id="fBanType">
+                        <option value="name" data-i18n="banTypeName">By Username</option>
+                        <option value="uuid" data-i18n="banTypeUuid">By UUID</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="banReasonLabel">Reason (optional)</label>
+                    <input type="text" id="fBanReason" data-i18n-placeholder="banReasonPh" placeholder="Reason for ban">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeBanModal()" data-i18n="cancel">Cancel</button>
+                <button class="btn btn-danger" onclick="saveBan()" data-i18n="banSave">Ban</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast toast-success" id="toastSuccess"></div>
     <div class="toast toast-error" id="toastError"></div>
 
@@ -272,6 +387,7 @@
 
         const I18N = {
             zh: {
+                tabSettings: '服务器设置', tabServers: '认证服务器', tabSkin: '皮肤修复', tabNames: '重名管理', tabGuide: '配置指南',
                 authServers: '认证服务器', addServer: '+ 添加服务器', editServer: '编辑服务器',
                 thName: '名称', thPriority: '优先级', thConnectivity: '连通性', thStatus: '状态', thUuid: 'UUID 策略', thActions: '操作',
                 labelName: '名称', labelUrl: 'hasJoined URL', labelPriority: '优先级', labelTimeout: '超时 (毫秒)',
@@ -290,16 +406,30 @@
                 skinRestorerMode: '模式', skinRestorerMethod: '方法', skinRestorerNote: '已修复的皮肤会缓存到数据库，后续登录直接使用缓存。',
                 srOff: '关闭', srLogin: '登录时（同步，阻塞登录）', srAsync: '异步（后台，下次登录生效）',
                 srMethodUrl: 'URL（MineSkin 从 URL 获取）', srMethodUpload: '上传（发送皮肤图片）',
-                duplicateNamesTitle: '重名处理', duplicateNamesDesc: '控制来自不同认证服务器的玩家是否可以同时使用相同的名称在线。',
-                blockDuplicates: '阻止（禁止不同服务器的同名玩家同时在线）', allowDuplicates: '允许（不同服务器的同名玩家可以同时在线）',
+                duplicateNamesTitle: '重名处理', duplicateNamesDesc: '阻止后，玩家首次登录时用户名将永久绑定到 UUID，管理员可在下方解除绑定。',
+                blockDuplicates: '阻止（绑定用户名到首个 UUID）', allowDuplicates: '允许（不同服务器的同名玩家可以同时在线）',
+                bindingMgmtTitle: '重名管理', bindingMgmtDesc: '搜索和管理用户名与 UUID 的绑定关系。删除绑定后该用户名可被其他账号使用。',
+                bindingSearchPh: '按用户名搜索...', bindingSearchBtn: '搜索', bindingShowAll: '显示全部',
+                bindingUsername: '用户名', bindingService: '认证源', bindingTime: '绑定时间', bindingActions: '操作',
+                bindingEmpty: '未找到绑定记录', bindingDelete: '删除', bindingRefresh: '刷新', bindingConfirmDelete: '确定删除此绑定？删除后该用户名可被其他账号使用。',
+                tabBans: '封禁管理',
+                banTitle: '封禁管理', banDesc: '通过用户名或 UUID 封禁玩家，被封禁的玩家无法登录服务器。',
+                banAdd: '+ 添加封禁', banAddTitle: '添加封禁',
+                banTargetLabel: '封禁目标（用户名或 UUID）', banTargetPh: '输入用户名或 UUID',
+                banTypeLabel: '封禁类型', banTypeName: '按用户名', banTypeUuid: '按 UUID',
+                banReasonLabel: '封禁原因（选填）', banReasonPh: '输入封禁原因',
+                banSave: '封禁', banSearchPh: '按用户名或 UUID 搜索...', banSearchBtn: '搜索', banShowAll: '显示全部',
+                banTarget: '目标', banType: '类型', banReason: '原因', banTime: '封禁时间', banActions: '操作',
+                banEmpty: '暂无封禁记录', banDelete: '解封', banConfirmDelete: '确定解封此玩家？',
+                banTypeNameShort: '用户名', banTypeUuidShort: 'UUID',
                 setupTitle: '服务器配置指南',
                 step1Title: '下载 authlib-injector', step1Desc: '从官方网站下载最新版 authlib-injector：',
                 step2Title: '放置 JAR 文件', step2Desc: '将下载的 authlib-injector JAR 文件放入你的 Minecraft 服务器目录。',
                 step3Title: '配置 JVM 启动参数', step3Desc: '在服务器启动命令中添加以下参数（如果 JAR 文件名不同请替换）：',
                 step4Title: '重启服务器', step4Desc: '重启你的 Minecraft 服务器，玩家将通过此服务进行认证。',
-                step5Title: '配置上方的认证服务器', step5Desc: '在下方表格中添加你的上游 Yggdrasil 认证服务器。',
             },
             en: {
+                tabSettings: 'Server Settings', tabServers: 'Auth Servers', tabSkin: 'Skin Restorer', tabNames: 'Duplicate Names', tabGuide: 'Setup Guide',
                 authServers: 'Authentication Servers', addServer: '+ Add Server', editServer: 'Edit Server',
                 thName: 'Name', thPriority: 'Priority', thConnectivity: 'Connectivity', thStatus: 'Status', thUuid: 'UUID Strategy', thActions: 'Actions',
                 labelName: 'Name', labelUrl: 'hasJoined URL', labelPriority: 'Priority', labelTimeout: 'Timeout (ms)',
@@ -318,14 +448,27 @@
                 skinRestorerMode: 'Mode', skinRestorerMethod: 'Method', skinRestorerNote: 'Restored skins are cached in the database for future logins.',
                 srOff: 'Off', srLogin: 'Login (sync, blocks until done)', srAsync: 'Async (background, next login)',
                 srMethodUrl: 'URL (MineSkin fetches from URL)', srMethodUpload: 'Upload (send skin bytes)',
-                duplicateNamesTitle: 'Duplicate Names', duplicateNamesDesc: 'Control whether players from different auth servers can have the same name online at the same time.',
-                blockDuplicates: 'Block (prevent same name from different servers)', allowDuplicates: 'Allow (same name can join from different servers)',
+                duplicateNamesTitle: 'Duplicate Names', duplicateNamesDesc: 'When blocked, players are permanently bound to their username on first login.',
+                blockDuplicates: 'Block (bind username to first UUID)', allowDuplicates: 'Allow (same name can join from different servers)',
+                bindingMgmtTitle: 'Name Bindings', bindingMgmtDesc: 'Search and manage username-to-UUID bindings. Deleting a binding allows that name to be used by a different account.',
+                bindingSearchPh: 'Search by username...', bindingSearchBtn: 'Search', bindingShowAll: 'Show All',
+                bindingUsername: 'Username', bindingService: 'Auth Server', bindingTime: 'Bound At', bindingActions: 'Actions',
+                bindingEmpty: 'No bindings found', bindingDelete: 'Delete', bindingRefresh: 'Refresh', bindingConfirmDelete: 'Delete this binding? The username can then be used by another account.',
+                tabBans: 'Ban Management',
+                banTitle: 'Ban Management', banDesc: 'Ban players by username or UUID. Banned players cannot join the server.',
+                banAdd: '+ Add Ban', banAddTitle: 'Add Ban',
+                banTargetLabel: 'Target (Username or UUID)', banTargetPh: 'Enter username or UUID',
+                banTypeLabel: 'Ban Type', banTypeName: 'By Username', banTypeUuid: 'By UUID',
+                banReasonLabel: 'Reason (optional)', banReasonPh: 'Enter reason for ban',
+                banSave: 'Ban', banSearchPh: 'Search by name or UUID...', banSearchBtn: 'Search', banShowAll: 'Show All',
+                banTarget: 'Target', banType: 'Type', banReason: 'Reason', banTime: 'Banned At', banActions: 'Actions',
+                banEmpty: 'No bans found', banDelete: 'Unban', banConfirmDelete: 'Unban this player?',
+                banTypeNameShort: 'Name', banTypeUuidShort: 'UUID',
                 setupTitle: 'Server Configuration Guide',
                 step1Title: 'Download authlib-injector', step1Desc: 'Download the latest authlib-injector from the official site:',
                 step2Title: 'Place the JAR file', step2Desc: 'Put the downloaded authlib-injector JAR into your Minecraft server directory.',
                 step3Title: 'Configure JVM startup parameter', step3Desc: 'Add the following parameter to your server startup command (replace the JAR filename if different):',
                 step4Title: 'Restart the server', step4Desc: 'Restart your Minecraft server. Players will now authenticate through this service.',
-                step5Title: 'Configure auth servers above', step5Desc: 'Add your upstream Yggdrasil authentication servers in the table below.',
             }
         };
         let lang = localStorage.getItem('multilogin_lang') || 'zh';
@@ -368,6 +511,17 @@
         const API_KEY = params.get('key') || '';
         function headers() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY }; }
 
+        // Tab navigation
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Settings
         async function loadSettings() {
             const resp = await fetch('/admin/api/settings', { headers: headers() });
             if (resp.ok) {
@@ -393,6 +547,7 @@
             else showToast(t('error'), true);
         }
 
+        // Server list
         let serverStatus = {};
         let cachedServers = [];
 
@@ -410,13 +565,9 @@
             cachedServers.forEach((s, i) => {
                 const st = serverStatus[s.name];
                 let connHtml;
-                if (!st) {
-                    connHtml = '<span class="status-dot status-unknown"></span>' + t('unchecked');
-                } else if (st.online) {
-                    connHtml = '<span class="status-dot status-online"></span>' + t('online') + (st.latency_ms != null ? ' (' + st.latency_ms + 'ms)' : '');
-                } else {
-                    connHtml = '<span class="status-dot status-offline"></span>' + t('offline') + (st.error ? ' - ' + esc(st.error) : '');
-                }
+                if (!st) { connHtml = '<span class="status-dot status-unknown"></span>' + t('unchecked'); }
+                else if (st.online) { connHtml = '<span class="status-dot status-online"></span>' + t('online') + (st.latency_ms != null ? ' (' + st.latency_ms + 'ms)' : ''); }
+                else { connHtml = '<span class="status-dot status-offline"></span>' + t('offline') + (st.error ? ' - ' + esc(st.error) : ''); }
                 const tr = document.createElement('tr');
                 tr.draggable = true;
                 tr.dataset.idx = i;
@@ -443,69 +594,34 @@
         }
 
         let dragIdx = null;
-
-        function onDragStart(e) {
-            dragIdx = parseInt(this.dataset.idx);
-            this.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', dragIdx);
-        }
-
-        function onDragOver(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            this.classList.add('drag-over');
-        }
-
-        function onDragLeave(e) {
-            this.classList.remove('drag-over');
-        }
-
+        function onDragStart(e) { dragIdx = parseInt(this.dataset.idx); this.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragIdx); }
+        function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; this.classList.add('drag-over'); }
+        function onDragLeave(e) { this.classList.remove('drag-over'); }
         function onDrop(e) {
-            e.preventDefault();
-            this.classList.remove('drag-over');
+            e.preventDefault(); this.classList.remove('drag-over');
             const dropIdx = parseInt(this.dataset.idx);
             if (dragIdx === null || dragIdx === dropIdx) return;
-
             const item = cachedServers.splice(dragIdx, 1)[0];
             cachedServers.splice(dropIdx, 0, item);
             cachedServers.forEach((s, i) => { s.priority = i + 1; });
-            renderServerList();
-            saveOrder();
+            renderServerList(); saveOrder();
         }
-
-        function onDragEnd(e) {
-            this.classList.remove('dragging');
-            dragIdx = null;
-            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-        }
+        function onDragEnd(e) { this.classList.remove('dragging'); dragIdx = null; document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
 
         async function saveOrder() {
             const ordered = cachedServers.map(s => ({ id: s.id }));
-            const resp = await fetch('/admin/api/servers/reorder', {
-                method: 'POST', headers: headers(), body: JSON.stringify({ order: ordered })
-            });
-            if (resp.ok) showToast(t('saved'));
-            else showToast(t('error'), true);
+            const resp = await fetch('/admin/api/servers/reorder', { method: 'POST', headers: headers(), body: JSON.stringify({ order: ordered }) });
+            if (resp.ok) showToast(t('saved')); else showToast(t('error'), true);
         }
 
         async function checkAllStatus() {
             const btn = document.getElementById('btnCheck');
-            btn.classList.add('loading');
-            btn.textContent = t('checking');
+            btn.classList.add('loading'); btn.textContent = t('checking');
             try {
                 const resp = await fetch('/admin/api/servers/check', { method: 'POST', headers: headers() });
-                if (resp.ok) {
-                    const results = await resp.json();
-                    results.forEach(r => { serverStatus[r.name] = r; });
-                    renderServerList();
-                }
-            } catch (e) {
-                showToast(t('error'), true);
-            } finally {
-                btn.classList.remove('loading');
-                btn.textContent = t('checkStatus');
-            }
+                if (resp.ok) { const results = await resp.json(); results.forEach(r => { serverStatus[r.name] = r; }); renderServerList(); }
+            } catch (e) { showToast(t('error'), true); }
+            finally { btn.classList.remove('loading'); btn.textContent = t('checkStatus'); }
         }
 
         function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
@@ -569,14 +685,125 @@
             if (resp.ok) { loadServers(); }
         }
 
+        // Bindings
+        async function loadBindings() {
+            document.getElementById('bindingSearch').value = '';
+            const resp = await fetch('/admin/api/bindings', { headers: headers() });
+            if (resp.ok) renderBindings(await resp.json());
+        }
+
+        async function searchBindings() {
+            const q = document.getElementById('bindingSearch').value.trim();
+            const url = q ? `/admin/api/bindings?q=${encodeURIComponent(q)}` : '/admin/api/bindings';
+            const resp = await fetch(url, { headers: headers() });
+            if (resp.ok) renderBindings(await resp.json());
+        }
+
+        function renderBindings(bindings) {
+            const tbody = document.getElementById('bindingList');
+            const empty = document.getElementById('bindingEmpty');
+            const serverMap = {};
+            cachedServers.forEach(s => { serverMap[s.id] = s.name; });
+            tbody.innerHTML = '';
+            if (bindings.length === 0) { empty.style.display = 'block'; return; }
+            empty.style.display = 'none';
+            bindings.forEach(b => {
+                const tr = document.createElement('tr');
+                const time = b.created_at ? new Date(b.created_at).toLocaleString() : '-';
+                const serverName = serverMap[b.service_id] || b.service_id;
+                tr.innerHTML = `
+                    <td>${esc(b.username)}</td>
+                    <td style="font-family:monospace;font-size:12px">${esc(b.uuid)}</td>
+                    <td>${esc(serverName)}</td>
+                    <td>${time}</td>
+                    <td><button class="btn btn-sm btn-danger" onclick="deleteBinding('${esc(b.username)}')">${t('bindingDelete')}</button></td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function deleteBinding(username) {
+            if (!confirm(`${t('bindingConfirmDelete')}\n${username}`)) return;
+            const resp = await fetch(`/admin/api/bindings/${encodeURIComponent(username)}`, { method: 'DELETE', headers: headers() });
+            if (resp.ok) { showToast(t('deleted')); searchBindings(); }
+            else showToast(t('error'), true);
+        }
+
+        // Bans
+        async function loadBans() {
+            document.getElementById('banSearch').value = '';
+            const resp = await fetch('/admin/api/bans', { headers: headers() });
+            if (resp.ok) renderBans(await resp.json());
+        }
+
+        async function searchBans() {
+            const q = document.getElementById('banSearch').value.trim();
+            const url = q ? `/admin/api/bans?q=${encodeURIComponent(q)}` : '/admin/api/bans';
+            const resp = await fetch(url, { headers: headers() });
+            if (resp.ok) renderBans(await resp.json());
+        }
+
+        function renderBans(bans) {
+            const tbody = document.getElementById('banList');
+            const empty = document.getElementById('banEmpty');
+            tbody.innerHTML = '';
+            if (bans.length === 0) { empty.style.display = 'block'; return; }
+            empty.style.display = 'none';
+            bans.forEach(b => {
+                const tr = document.createElement('tr');
+                const time = b.created_at ? new Date(b.created_at).toLocaleString() : '-';
+                const typeLabel = b.ban_type === 'uuid' ? t('banTypeUuidShort') : t('banTypeNameShort');
+                tr.innerHTML = `
+                    <td>${esc(b.target)}</td>
+                    <td>${typeLabel}</td>
+                    <td>${esc(b.reason || '-')}</td>
+                    <td>${time}</td>
+                    <td><button class="btn btn-sm btn-warning" onclick="deleteBan(${b.id})">${t('banDelete')}</button></td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openAddBanModal() {
+            document.getElementById('fBanTarget').value = '';
+            document.getElementById('fBanType').value = 'name';
+            document.getElementById('fBanReason').value = '';
+            document.getElementById('banModal').classList.add('active');
+        }
+
+        function closeBanModal() { document.getElementById('banModal').classList.remove('active'); }
+
+        async function saveBan() {
+            const data = {
+                target: document.getElementById('fBanTarget').value.trim(),
+                ban_type: document.getElementById('fBanType').value,
+                reason: document.getElementById('fBanReason').value.trim(),
+            };
+            if (!data.target) { showToast(t('error'), true); return; }
+            const resp = await fetch('/admin/api/bans', { method: 'POST', headers: headers(), body: JSON.stringify(data) });
+            if (resp.ok) { closeBanModal(); loadBans(); showToast(t('saved')); }
+            else showToast(t('error'), true);
+        }
+
+        async function deleteBan(id) {
+            if (!confirm(t('banConfirmDelete'))) return;
+            const resp = await fetch(`/admin/api/bans/${id}`, { method: 'DELETE', headers: headers() });
+            if (resp.ok) { showToast(t('deleted')); loadBans(); }
+            else showToast(t('error'), true);
+        }
+
         function showToast(msg, isError) {
             const el = isError ? document.getElementById('toastError') : document.getElementById('toastSuccess');
-            el.textContent = msg;
-            el.style.display = 'block';
+            el.textContent = msg; el.style.display = 'block';
             setTimeout(() => el.style.display = 'none', 2000);
         }
 
+        // ESC to close modals
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') { closeModal(); closeBanModal(); }
+        });
+
         applyLang();
+        loadBindings();
+        loadBans();
     </script>
 </body>
 </html>

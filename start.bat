@@ -28,5 +28,5 @@ if %errorlevel% neq 0 (
 )
 
 echo [*] Starting MultiLogin Python...
-python app.py
+python start.py
 pause

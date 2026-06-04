@@ -58,6 +58,14 @@ def init_db() -> None:
             service_id TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS bans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target TEXT NOT NULL,
+            ban_type TEXT NOT NULL,
+            reason TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
 
@@ -202,5 +210,48 @@ def list_name_bindings(limit: int = 100, offset: int = 0) -> list[dict]:
     rows = conn.execute(
         "SELECT username, uuid, service_id, created_at FROM name_binding ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_banned(username: str, uuid: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM bans WHERE (ban_type = 'name' AND target = ?) OR (ban_type = 'uuid' AND target = ?) LIMIT 1",
+        (username.lower(), uuid.lower()),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def add_ban(target: str, ban_type: str, reason: str = "") -> None:
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO bans (target, ban_type, reason) VALUES (?, ?, ?)",
+        (target.lower(), ban_type, reason),
+    )
+    conn.commit()
+
+
+def remove_ban(ban_id: int) -> bool:
+    conn = _get_conn()
+    cursor = conn.execute("DELETE FROM bans WHERE id = ?", (ban_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def list_bans(limit: int = 100, offset: int = 0) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT id, target, ban_type, reason, created_at FROM bans ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_bans(keyword: str) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT id, target, ban_type, reason, created_at FROM bans WHERE target LIKE ? ORDER BY created_at DESC LIMIT 100",
+        (f"%{keyword.lower()}%",),
     ).fetchall()
     return [dict(r) for r in rows]

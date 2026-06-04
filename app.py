@@ -1,3 +1,5 @@
+import atexit
+import asyncio
 import logging
 import sys
 
@@ -5,6 +7,7 @@ from flask import Flask
 
 import config
 import database
+import upstream
 from auth_key import load_or_create_key
 from routes.authserver import authserver_bp
 from routes.session import session_bp
@@ -58,6 +61,13 @@ def main():
 
     logger.info(f"Starting MultiLogin Python on {host}:{port}")
     logger.info(f"Loaded {len(config.get_auth_servers())} auth server(s)")
+
+    def shutdown():
+        logger.info("Shutting down...")
+        asyncio.run(upstream.close_session())
+        database.close_db()
+
+    atexit.register(shutdown)
 
     app = create_app()
     app.run(host=host, port=port, debug=False)

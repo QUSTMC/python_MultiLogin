@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify, render_template, redirect, url_fo
 from config import get_auth_servers, update_auth_servers, get_config, update_config, get_server_setting, generate_server_id
 from auth_key import verify_key
 from upstream import check_server_status
+import database
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates")
 
@@ -206,3 +207,58 @@ def update_settings():
         "skin_restorer_method": cfg.get("skin_restorer_method", "url"),
         "allow_duplicate_names": cfg.get("allow_duplicate_names", False),
     })
+
+
+@admin_bp.route("/admin/api/bindings", methods=["GET"])
+@require_key
+def get_bindings():
+    keyword = request.args.get("q", "").strip()
+    if keyword:
+        bindings = database.search_name_binding(keyword)
+    else:
+        bindings = database.list_name_bindings()
+    return jsonify(bindings)
+
+
+@admin_bp.route("/admin/api/bindings/<username>", methods=["DELETE"])
+@require_key
+def delete_binding(username: str):
+    deleted = database.delete_name_binding(username)
+    if deleted:
+        return jsonify({"deleted": username})
+    return jsonify({"error": "Binding not found"}), 404
+
+
+@admin_bp.route("/admin/api/bans", methods=["GET"])
+@require_key
+def get_bans():
+    keyword = request.args.get("q", "").strip()
+    if keyword:
+        bans = database.search_bans(keyword)
+    else:
+        bans = database.list_bans()
+    return jsonify(bans)
+
+
+@admin_bp.route("/admin/api/bans", methods=["POST"])
+@require_key
+def add_ban():
+    data = request.get_json(silent=True)
+    if not data or not data.get("target") or not data.get("ban_type"):
+        return jsonify({"error": "Missing required fields: target, ban_type"}), 400
+
+    ban_type = data["ban_type"]
+    if ban_type not in ("name", "uuid"):
+        return jsonify({"error": "ban_type must be 'name' or 'uuid'"}), 400
+
+    database.add_ban(data["target"], ban_type, data.get("reason", ""))
+    return jsonify({"added": data["target"], "ban_type": ban_type}), 201
+
+
+@admin_bp.route("/admin/api/bans/<int:ban_id>", methods=["DELETE"])
+@require_key
+def delete_ban(ban_id: int):
+    deleted = database.remove_ban(ban_id)
+    if deleted:
+        return jsonify({"deleted": ban_id})
+    return jsonify({"error": "Ban not found"}), 404
