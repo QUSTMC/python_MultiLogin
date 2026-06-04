@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from urllib.parse import urlparse
 
 import aiohttp
@@ -8,21 +9,40 @@ from config import get_auth_servers
 
 logger = logging.getLogger(__name__)
 
+_connector: aiohttp.TCPConnector | None = None
+_session: aiohttp.ClientSession | None = None
+
+_profile_cache: dict[str, tuple[float, dict]] = {}
+PROFILE_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_session() -> aiohttp.ClientSession:
+    global _session, _connector
+    if _session is None or _session.closed:
+        _connector = aiohttp.TCPConnector(
+            limit=20,
+            limit_per_host=5,
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True,
+        )
+        _session = aiohttp.ClientSession(
+            connector=_connector,
+            timeout=aiohttp.ClientTimeout(total=30),
+        )
+    return _session
+
+
+async def close_session() -> None:
+    global _session, _connector
+    if _session and not _session.closed:
+        await _session.close()
+        _session = None
+    if _connector:
+        await _connector.close()
+        _connector = None
+
 
 def _split_session_url(session_url: str) -> tuple[str, str]:
-    """Split hasJoined URL into (base, path).
-    Handles both full URLs and base API URLs.
-
-    Full URL examples:
-      https://littleskin.cn/api/yggdrasil/sessionserver/session/minecraft/hasJoined
-        -> (https://littleskin.cn/api/yggdrasil, /sessionserver/session/minecraft/hasJoined)
-      https://sessionserver.mojang.com/session/minecraft/hasJoined
-        -> (https://sessionserver.mojang.com, /session/minecraft/hasJoined)
-
-    Base API URL examples (auto-appends /sessionserver/session/minecraft/hasJoined):
-      https://skin.mualliance.ltd/api/union/yggdrasil
-        -> (https://skin.mualliance.ltd/api/union/yggdrasil, /sessionserver/session/minecraft/hasJoined)
-    """
     idx = session_url.find("/sessionserver/")
     if idx != -1:
         return session_url[:idx], session_url[idx:]
@@ -41,20 +61,29 @@ def _derive_auth_base_url(session_url: str) -> str:
 
 
 def _derive_session_base_url(session_url: str) -> str:
-    """Returns base URL for session endpoints.
-    join URL = base + /minecraft/join
-    """
     base, path = _split_session_url(session_url)
     if "/sessionserver/" in path:
         return base + "/sessionserver/session"
-    if path.startswith("/session/"):
-        return base + "/session"
     return base + "/session"
 
 
 def _get_enabled_servers() -> list:
-    servers = get_auth_servers()
-    return [s for s in servers if s.get("enabled", True)]
+    return [s for s in get_auth_servers() if s.get("enabled", True)]
+
+
+def _get_cached_profile(cache_key: str) -> dict | None:
+    entry = _profile_cache.get(cache_key)
+    if entry is None:
+        return None
+    ts, data = entry
+    if time.time() - ts > PROFILE_CACHE_TTL:
+        del _profile_cache[cache_key]
+        return None
+    return data
+
+
+def _set_cached_profile(cache_key: str, data: dict) -> None:
+    _profile_cache[cache_key] = (time.time(), data)
 
 
 async def _request(
@@ -64,137 +93,64 @@ async def _request(
     json_data: dict | None = None,
     params: dict | None = None,
 ) -> dict | list | None:
+    session = _get_session()
     t = aiohttp.ClientTimeout(total=timeout / 1000)
     try:
-        async with aiohttp.ClientSession(timeout=t) as session:
-            async with session.request(method, url, json=json_data, params=params) as resp:
-                if resp.status == 200:
-                    text = await resp.text()
-                    if not text.strip():
-                        return None
-                    return await resp.json(content_type=None)
-                elif resp.status == 204:
-                    return {}
-                else:
-                    logger.debug(f"Upstream {url} returned {resp.status}")
+        async with session.request(method, url, json=json_data, params=params, timeout=t) as resp:
+            if resp.status == 200:
+                text = await resp.text()
+                if not text.strip():
                     return None
+                return await resp.json(content_type=None)
+            elif resp.status == 204:
+                return {}
+            else:
+                logger.debug(f"Upstream {url} returned {resp.status}")
+                return None
     except Exception as e:
         logger.debug(f"Upstream {url} error: {e}")
         return None
 
 
-async def try_authenticate_all(payload: dict) -> tuple[dict | None, int | None]:
+async def auth_action(server: dict, action: str, payload: dict) -> dict | None:
+    auth_base = _derive_auth_base_url(server["url"])
+    url = f"{auth_base}/{action}"
+    timeout = server.get("timeout", 10000)
+    return await _request("POST", url, timeout=timeout, json_data=payload)
+
+
+async def try_authenticate_all(payload: dict) -> tuple[dict | None, str | None]:
     servers = _get_enabled_servers()
     if not servers:
         return None, None
 
-    async def try_one(server: dict) -> tuple[dict | None, int | None]:
-        auth_base = _derive_auth_base_url(server["url"])
-        url = f"{auth_base}/authenticate"
-        timeout = server.get("timeout", 10000)
-        result = await _request("POST", url, timeout=timeout, json_data=payload)
+    async def try_one(server: dict) -> tuple[dict | None, str | None]:
+        result = await auth_action(server, "authenticate", payload)
         if result and "accessToken" in result:
-            return result, server.get("priority", 999)
+            return result, server["id"]
         return None, None
 
     tasks = [try_one(s) for s in servers]
     for coro in asyncio.as_completed(tasks):
-        result, priority = await coro
+        result, sid = await coro
         if result is not None:
-            server = next(
-                (s for s in servers if s.get("priority", 999) == priority),
-                servers[0],
-            )
-            return result, server.get("priority", 999)
+            return result, sid
 
     return None, None
-
-
-async def authenticate_for_server(server: dict, payload: dict) -> dict | None:
-    auth_base = _derive_auth_base_url(server["url"])
-    url = f"{auth_base}/authenticate"
-    timeout = server.get("timeout", 10000)
-    return await _request("POST", url, timeout=timeout, json_data=payload)
-
-
-async def refresh_for_server(server: dict, payload: dict) -> dict | None:
-    auth_base = _derive_auth_base_url(server["url"])
-    url = f"{auth_base}/refresh"
-    timeout = server.get("timeout", 10000)
-    return await _request("POST", url, timeout=timeout, json_data=payload)
-
-
-async def validate_for_server(server: dict, payload: dict) -> dict | None:
-    auth_base = _derive_auth_base_url(server["url"])
-    url = f"{auth_base}/validate"
-    timeout = server.get("timeout", 10000)
-    result = await _request("POST", url, timeout=timeout, json_data=payload)
-    return result
-
-
-async def invalidate_for_server(server: dict, payload: dict) -> dict | None:
-    auth_base = _derive_auth_base_url(server["url"])
-    url = f"{auth_base}/invalidate"
-    timeout = server.get("timeout", 10000)
-    return await _request("POST", url, timeout=timeout, json_data=payload)
-
-
-async def signout_for_server(server: dict, payload: dict) -> dict | None:
-    auth_base = _derive_auth_base_url(server["url"])
-    url = f"{auth_base}/signout"
-    timeout = server.get("timeout", 10000)
-    return await _request("POST", url, timeout=timeout, json_data=payload)
 
 
 async def join_for_server(server: dict, payload: dict) -> bool:
     session_base = _derive_session_base_url(server["url"])
     url = f"{session_base}/minecraft/join"
     timeout = server.get("timeout", 10000)
+    session = _get_session()
     t = aiohttp.ClientTimeout(total=timeout / 1000)
     try:
-        async with aiohttp.ClientSession(timeout=t) as session:
-            async with session.post(url, json=payload) as resp:
-                return resp.status == 204 or resp.status == 200
+        async with session.post(url, json=payload, timeout=t) as resp:
+            return resp.status == 204 or resp.status == 200
     except Exception as e:
         logger.debug(f"Join upstream {url} error: {e}")
         return False
-
-
-async def join_for_service_id(service_id: int, payload: dict) -> bool:
-    servers = _get_enabled_servers()
-    server = next((s for s in servers if s.get("priority") == service_id), None)
-    if not server:
-        server = next(
-            (s for s in servers if s.get("name", "").lower().replace(" ", "_") == str(service_id)),
-            None,
-        )
-    if not server:
-        return False
-    return await join_for_server(server, payload)
-
-
-async def try_join_all(payload: dict) -> tuple[bool, int | None]:
-    servers = _get_enabled_servers()
-    if not servers:
-        return False, None
-
-    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
-
-    async def try_one(server: dict) -> tuple[bool, int]:
-        ok = await join_for_server(server, payload)
-        return ok, id(server)
-
-    tasks = [try_one(s) for s in sorted_servers]
-    for coro in asyncio.as_completed(tasks):
-        ok, _ = await coro
-        if ok:
-            for s in sorted_servers:
-                test_ok = await join_for_server(s, payload)
-                if test_ok:
-                    return True, s.get("priority", 999)
-            return True, sorted_servers[0].get("priority", 999)
-
-    return False, None
 
 
 async def hasjoined_for_server(server: dict, params: dict) -> dict | None:
@@ -203,34 +159,19 @@ async def hasjoined_for_server(server: dict, params: dict) -> dict | None:
     return await _request("GET", url, timeout=timeout, params=params)
 
 
-async def hasjoined_for_service_id(service_id: int, params: dict) -> dict | None:
-    servers = _get_enabled_servers()
-    server = next((s for s in servers if s.get("priority") == service_id), None)
-    if not server:
-        return None
-    return await hasjoined_for_server(server, params)
+async def profile_for_server(server: dict, uuid: str) -> dict | None:
+    cache_key = f"{server['id']}:{uuid}"
+    cached = _get_cached_profile(cache_key)
+    if cached is not None:
+        return cached
 
-
-async def try_hasjoined_all(params: dict) -> tuple[dict | None, int | None]:
-    servers = _get_enabled_servers()
-    if not servers:
-        return None, None
-
-    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
-
-    async def try_one(server: dict) -> tuple[dict | None, int | None]:
-        result = await hasjoined_for_server(server, params)
-        if result and "id" in result:
-            return result, server.get("priority", 999)
-        return None, None
-
-    tasks = [try_one(s) for s in sorted_servers]
-    for coro in asyncio.as_completed(tasks):
-        result, sid = await coro
-        if result is not None:
-            return result, sid
-
-    return None, None
+    session_base = _derive_session_base_url(server["url"])
+    url = f"{session_base}/minecraft/profile/{uuid}"
+    timeout = server.get("timeout", 10000)
+    result = await _request("GET", url, timeout=timeout)
+    if result and "id" in result:
+        _set_cached_profile(cache_key, result)
+    return result
 
 
 async def profile_for_uuid(uuid: str) -> dict | None:
@@ -250,17 +191,10 @@ async def profile_for_uuid(uuid: str) -> dict | None:
     return None
 
 
-async def profile_for_server(server: dict, uuid: str) -> dict | None:
-    session_base = _derive_session_base_url(server["url"])
-    url = f"{session_base}/minecraft/profile/{uuid}"
-    timeout = server.get("timeout", 10000)
-    return await _request("GET", url, timeout=timeout)
-
-
 async def check_server_status(server: dict) -> dict:
     url = server["url"]
     timeout_ms = server.get("timeout", 10000)
-    timeout = aiohttp.ClientTimeout(total=min(timeout_ms, 5000) / 1000)
+    timeout = min(timeout_ms, 5000)
     result = {
         "name": server.get("name", ""),
         "url": url,
@@ -269,13 +203,13 @@ async def check_server_status(server: dict) -> dict:
         "error": None,
     }
     try:
-        import time
         start = time.monotonic()
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as resp:
-                elapsed = (time.monotonic() - start) * 1000
-                result["latency_ms"] = round(elapsed)
-                result["online"] = True
+        t = aiohttp.ClientTimeout(total=timeout / 1000)
+        session = _get_session()
+        async with session.get(url, timeout=t) as resp:
+            elapsed = (time.monotonic() - start) * 1000
+            result["latency_ms"] = round(elapsed)
+            result["online"] = True
     except asyncio.TimeoutError:
         result["error"] = "Timeout"
     except aiohttp.ClientError as e:

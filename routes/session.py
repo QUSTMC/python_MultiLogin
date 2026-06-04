@@ -1,34 +1,30 @@
-import asyncio
 import logging
-import time
 from flask import Blueprint, request, jsonify
 
+import async_utils
 import upstream
 import database
 import skin_restorer
+import session_store
 
 logger = logging.getLogger(__name__)
 
 session_bp = Blueprint("session", __name__)
 
 _join_cache: dict = {}
-_online_players: dict = {}  # username -> {service_id, timestamp, uuid}
-ONLINE_TIMEOUT = 300  # seconds
 
 
-def _get_server_by_priority(service_id: int):
-    from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    return next((s for s in servers if s.get("priority") == service_id), None)
+def _get_server_by_id(service_id: str):
+    from config import get_server_by_id
+    return get_server_by_id(service_id)
 
 
-def _record_uuid_mapping(uuid: str, service_id: int, username: str | None = None):
+def _record_uuid_mapping(uuid: str, service_id: str, username: str | None = None):
     database.set_uuid_service(uuid, service_id, username)
 
 
 def _has_skin_properties(profile: dict) -> bool:
-    props = profile.get("properties", [])
-    return any(p.get("name") == "textures" for p in props)
+    return any(p.get("name") == "textures" for p in profile.get("properties", []))
 
 
 def _enrich_with_skin(profile: dict, server: dict) -> dict:
@@ -37,64 +33,63 @@ def _enrich_with_skin(profile: dict, server: dict) -> dict:
     uuid = profile.get("id", "")
     if not uuid:
         return profile
-    skin = asyncio.run(upstream.profile_for_server(server, uuid))
+    skin = async_utils.run_async(upstream.profile_for_server(server, uuid))
     if skin and _has_skin_properties(skin):
         profile["properties"] = skin["properties"]
-        logger.info(f"Enriched: uuid={uuid[:12]}...")
     return profile
 
 
 def _apply_skin_restorer(profile: dict) -> dict:
     from config import get_config
     cfg = get_config()
-    restorer_mode = cfg.get("skin_restorer", "off").lower()
-
-    if restorer_mode == "off":
+    if cfg.get("skin_restorer", "off").lower() == "off":
         return profile
-
-    props = profile.get("properties", [])
-    if not any(p.get("name") == "textures" for p in props):
+    if not _has_skin_properties(profile):
         return profile
-
     method = cfg.get("skin_restorer_method", "url").lower()
-    profile["properties"] = skin_restorer.restore_skin(props, method)
+    profile["properties"] = skin_restorer.restore_skin(profile["properties"], method)
     return profile
 
 
-def _cleanup_expired_players():
-    now = time.time()
-    expired = [u for u, d in _online_players.items() if now - d["timestamp"] > ONLINE_TIMEOUT]
-    for u in expired:
-        del _online_players[u]
-
-
-def _check_duplicate_name(username: str, service_id: int) -> str | None:
+def _check_name_binding(username: str, uuid: str) -> str | None:
     from config import get_config
-    cfg = get_config()
-    if cfg.get("allow_duplicate_names", False):
+    if get_config().get("allow_duplicate_names", False):
         return None
-
-    _cleanup_expired_players()
-    existing = _online_players.get(username.lower())
-    if existing and existing["service_id"] != service_id:
-        from config import get_auth_servers
-        servers = [s for s in get_auth_servers() if s.get("enabled")]
-        existing_server = next((s for s in servers if s.get("priority") == existing["service_id"]), None)
-        server_name = existing_server["name"] if existing_server else f"Service {existing['service_id']}"
-        return f"Player '{username}' is already online from {server_name}"
+    binding = database.get_name_binding(username)
+    if binding and binding["uuid"] != uuid:
+        return "该用户名已被其他账号绑定"
     return None
 
 
-def _record_online_player(username: str, service_id: int, uuid: str):
-    _online_players[username.lower()] = {
-        "service_id": service_id,
-        "timestamp": time.time(),
-        "uuid": uuid,
-    }
+def _check_ban(username: str, uuid: str) -> str | None:
+    ban = database.is_banned(username, uuid)
+    if ban:
+        reason = ban.get("reason", "")
+        return f"你已被封禁: {reason}" if reason else "你已被封禁"
+    return None
 
 
-def _remove_online_player(username: str):
-    _online_players.pop(username.lower(), None)
+def _process_hasjoined(username: str, server: dict, params: dict) -> dict | None:
+    result = async_utils.run_async(upstream.hasjoined_for_server(server, params))
+    if not result or "id" not in result:
+        return None
+
+    uuid = result["id"]
+    service_id = server["id"]
+
+    error = _check_name_binding(username, uuid)
+    if error:
+        return {"error": error, "code": 403}
+
+    error = _check_ban(username, uuid)
+    if error:
+        return {"error": error, "code": 403}
+
+    database.set_name_binding(username, uuid, service_id)
+    _record_uuid_mapping(uuid, service_id, username)
+    result = _enrich_with_skin(result, server)
+    result = _apply_skin_restorer(result)
+    return result
 
 
 @session_bp.route("/sessionserver/session/minecraft/join", methods=["POST"])
@@ -107,54 +102,23 @@ def join():
     server_id = payload.get("selectedServer", "") or payload.get("serverId", "")
     username = ""
 
-    from routes.authserver import _session_cache
-    for uname, cached in _session_cache.items():
-        if cached.get("access_token") == access_token:
-            username = uname
-            break
-
-    if username:
-        cached = _session_cache.get(username)
-        if cached:
-            service_id = cached["service_id"]
-            server = _get_server_by_priority(service_id)
-            if server:
-                ok = asyncio.run(upstream.join_for_server(server, payload))
-                if ok:
-                    _join_cache[server_id] = {"service_id": service_id, "username": username}
-                    logger.info(f"Join: {username} -> {server['name']} serverId={server_id[:12]}...")
-    return jsonify({}), 204
-
-
-@session_bp.route("/sessionserver/session/minecraft/disconnect", methods=["POST"])
-def disconnect():
-    data = request.get_json(silent=True)
-    if data and data.get("username"):
-        _remove_online_player(data["username"])
-        logger.info(f"Player disconnected: {data['username']}")
-    return jsonify({}), 204
-
-
-@session_bp.route("/online_players", methods=["GET"])
-def get_online_players():
-    _cleanup_expired_players()
-    result = []
-    for username, info in _online_players.items():
-        result.append({
-            "username": username,
-            "service_id": info["service_id"],
-            "uuid": info["uuid"],
-            "online_since": info["timestamp"],
-        })
-    return jsonify(result)
+    match = session_store.get_by_token(access_token)
+    if match:
+        username, service_id = match
+        server = _get_server_by_id(service_id)
+        if server:
+            ok = async_utils.run_async(upstream.join_for_server(server, payload))
+            if ok:
+                _join_cache[server_id] = {"service_id": service_id, "username": username}
+                logger.info(f"Join: {username} -> {server['name']} serverId={server_id[:12]}...")
+                return jsonify({}), 204
 
     from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
-    for server in sorted_servers:
-        ok = asyncio.run(upstream.join_for_server(server, payload))
+    servers = sorted([s for s in get_auth_servers() if s.get("enabled")], key=lambda s: s.get("priority", 999))
+    for server in servers:
+        ok = async_utils.run_async(upstream.join_for_server(server, payload))
         if ok:
-            sid = server.get("priority", 999)
+            sid = server["id"]
             _join_cache[server_id] = {"service_id": sid, "username": username}
             if username:
                 database.set_player_service(username, sid)
@@ -162,10 +126,7 @@ def get_online_players():
             return jsonify({}), 204
 
     logger.warning(f"Join failed: serverId={server_id[:12]}...")
-    return jsonify({
-        "error": "ForbiddenOperationException",
-        "errorMessage": "Invalid token.",
-    }), 403
+    return jsonify({"error": "ForbiddenOperationException", "errorMessage": "Invalid token."}), 403
 
 
 @session_bp.route("/sessionserver/session/minecraft/hasJoined", methods=["GET"])
@@ -177,70 +138,49 @@ def has_joined():
     cached = _join_cache.pop(server_id, None)
 
     if cached:
-        service_id = cached["service_id"]
-        server = _get_server_by_priority(service_id)
+        server = _get_server_by_id(cached["service_id"])
         if server:
-            dup_error = _check_duplicate_name(username, service_id)
-            if dup_error:
-                logger.warning(f"HasJoined blocked: {dup_error}")
-                return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
-
             params = {"username": username, "serverId": server_id}
             if server.get("track_ip", True) and ip:
                 params["ip"] = ip
-            result = asyncio.run(upstream.hasjoined_for_server(server, params))
-            if result and "id" in result:
-                _record_uuid_mapping(result["id"], service_id, username)
-                _record_online_player(username, service_id, result["id"])
-                result = _enrich_with_skin(result, server)
-                result = _apply_skin_restorer(result)
+            result = _process_hasjoined(username, server, params)
+            if result:
+                if "error" in result:
+                    logger.warning(f"HasJoined blocked: {result['error']} (username={username})")
+                    return jsonify({"error": "ForbiddenOperationException", "errorMessage": result["error"]}), result["code"]
                 logger.info(f"HasJoined: {username} via {server['name']}")
                 return jsonify(result)
 
     from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
-    for server in sorted_servers:
-        dup_error = _check_duplicate_name(username, server.get("priority", 999))
-        if dup_error:
-            logger.warning(f"HasJoined blocked (fallback): {dup_error}")
-            return jsonify({"error": "ForbiddenOperationException", "errorMessage": dup_error}), 403
-
+    servers = sorted([s for s in get_auth_servers() if s.get("enabled")], key=lambda s: s.get("priority", 999))
+    for server in servers:
         params = {"username": username, "serverId": server_id}
         if server.get("track_ip", True) and ip:
             params["ip"] = ip
-        result = asyncio.run(upstream.hasjoined_for_server(server, params))
-        if result and "id" in result:
-            sid = server.get("priority", 999)
-            _record_uuid_mapping(result["id"], sid, username)
-            _record_online_player(username, sid, result["id"])
-            result = _enrich_with_skin(result, server)
-            result = _apply_skin_restorer(result)
+        result = _process_hasjoined(username, server, params)
+        if result:
+            if "error" in result:
+                logger.warning(f"HasJoined blocked (fallback): {result['error']} (username={username})")
+                return jsonify({"error": "ForbiddenOperationException", "errorMessage": result["error"]}), result["code"]
             logger.info(f"HasJoined (fallback): {username} via {server['name']}")
             return jsonify(result)
 
     logger.warning(f"HasJoined failed: {username}")
-    return jsonify({
-        "error": "ForbiddenOperationException",
-        "errorMessage": "Invalid token.",
-    }), 403
+    return jsonify({"error": "ForbiddenOperationException", "errorMessage": "Invalid token."}), 403
 
 
 @session_bp.route("/sessionserver/session/minecraft/profile/<uuid>", methods=["GET"])
 def profile(uuid: str):
     service_id = database.get_service_by_uuid(uuid)
-
     if service_id is not None:
-        server = _get_server_by_priority(service_id)
+        server = _get_server_by_id(service_id)
         if server:
-            result = asyncio.run(upstream.profile_for_server(server, uuid))
+            result = async_utils.run_async(upstream.profile_for_server(server, uuid))
             if result:
-                result = _apply_skin_restorer(result)
-                return jsonify(result)
+                return jsonify(_apply_skin_restorer(result))
 
-    result = asyncio.run(upstream.profile_for_uuid(uuid))
+    result = async_utils.run_async(upstream.profile_for_uuid(uuid))
     if result:
-        result = _apply_skin_restorer(result)
-        return jsonify(result)
+        return jsonify(_apply_skin_restorer(result))
 
     return jsonify({}), 204

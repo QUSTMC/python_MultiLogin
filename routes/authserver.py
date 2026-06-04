@@ -1,16 +1,14 @@
-import asyncio
 import logging
 from flask import Blueprint, request, jsonify
 
+import async_utils
 import upstream
 import database
+import session_store
 
 logger = logging.getLogger(__name__)
 
 authserver_bp = Blueprint("authserver", __name__)
-
-# In-memory session cache: username -> {service_id, access_token, client_token}
-_session_cache: dict = {}
 
 
 @authserver_bp.route("/authserver/authenticate", methods=["POST"])
@@ -20,7 +18,7 @@ def authenticate():
         return jsonify({"error": "ForbiddenOperationException", "errorMessage": "Invalid request"}), 400
 
     username = payload.get("username", "")
-    result, service_id = asyncio.run(upstream.try_authenticate_all(payload))
+    result, service_id = async_utils.run_async(upstream.try_authenticate_all(payload))
 
     if result is None:
         return jsonify({
@@ -28,13 +26,7 @@ def authenticate():
             "errorMessage": "Invalid credentials. Invalid username or password.",
         }), 403
 
-    token = result.get("accessToken", "")
-    _session_cache[username.lower()] = {
-        "service_id": service_id,
-        "access_token": token,
-        "client_token": result.get("clientToken"),
-    }
-
+    session_store.record_auth(username, service_id, result.get("accessToken"), result.get("clientToken"))
     database.set_player_service(username, service_id)
 
     logger.info(f"Authenticate: {username} -> service {service_id}")
@@ -51,35 +43,23 @@ def refresh():
     if not username:
         username = payload.get("username", "")
 
-    cached = _session_cache.get(username.lower())
+    cached = session_store.get_by_username(username)
     if cached:
-        service_id = cached["service_id"]
-        from config import get_auth_servers
-        servers = [s for s in get_auth_servers() if s.get("enabled")]
-        server = next((s for s in servers if s.get("priority") == service_id), None)
+        from config import get_server_by_id
+        server = get_server_by_id(cached["service_id"])
         if server:
-            result = asyncio.run(upstream.refresh_for_server(server, payload))
+            result = async_utils.run_async(upstream.auth_action(server, "refresh", payload))
             if result:
-                _session_cache[username.lower()] = {
-                    "service_id": service_id,
-                    "access_token": result.get("accessToken"),
-                    "client_token": result.get("clientToken"),
-                }
+                session_store.update(username, result.get("accessToken"), result.get("clientToken"))
                 return jsonify(result)
 
     from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    sorted_servers = sorted(servers, key=lambda s: s.get("priority", 999))
-    for server in sorted_servers:
-        result = asyncio.run(upstream.refresh_for_server(server, payload))
+    servers = sorted([s for s in get_auth_servers() if s.get("enabled")], key=lambda s: s.get("priority", 999))
+    for server in servers:
+        result = async_utils.run_async(upstream.auth_action(server, "refresh", payload))
         if result:
-            sid = server.get("priority", 999)
-            _session_cache[username.lower()] = {
-                "service_id": sid,
-                "access_token": result.get("accessToken"),
-                "client_token": result.get("clientToken"),
-            }
-            database.set_player_service(username, sid)
+            session_store.record_auth(username, server["id"], result.get("accessToken"), result.get("clientToken"))
+            database.set_player_service(username, server["id"])
             return jsonify(result)
 
     return jsonify({
@@ -95,14 +75,13 @@ def validate():
         return jsonify({}), 204
 
     username = payload.get("selectedProfile", {}).get("name", "")
-    cached = _session_cache.get(username.lower()) if username else None
+    cached = session_store.get_by_username(username) if username else None
 
     if cached:
-        from config import get_auth_servers
-        servers = [s for s in get_auth_servers() if s.get("enabled")]
-        server = next((s for s in servers if s.get("priority") == cached["service_id"]), None)
+        from config import get_server_by_id
+        server = get_server_by_id(cached["service_id"])
         if server:
-            result = asyncio.run(upstream.validate_for_server(server, payload))
+            result = async_utils.run_async(upstream.auth_action(server, "validate", payload))
             if result is not None:
                 return jsonify({}), 204
 
@@ -120,13 +99,12 @@ def invalidate():
 
     username = payload.get("selectedProfile", {}).get("name", "")
     if username:
-        cached = _session_cache.pop(username.lower(), None)
+        cached = session_store.remove(username)
         if cached:
-            from config import get_auth_servers
-            servers = [s for s in get_auth_servers() if s.get("enabled")]
-            server = next((s for s in servers if s.get("priority") == cached["service_id"]), None)
+            from config import get_server_by_id
+            server = get_server_by_id(cached["service_id"])
             if server:
-                asyncio.run(upstream.invalidate_for_server(server, payload))
+                async_utils.run_async(upstream.auth_action(server, "invalidate", payload))
 
     return jsonify({}), 204
 
@@ -139,11 +117,11 @@ def signout():
 
     username = payload.get("username", "")
     if username:
-        _session_cache.pop(username.lower(), None)
+        session_store.remove(username)
 
     from config import get_auth_servers
-    servers = [s for s in get_auth_servers() if s.get("enabled")]
-    for server in servers:
-        asyncio.run(upstream.signout_for_server(server, payload))
+    for server in get_auth_servers():
+        if server.get("enabled"):
+            async_utils.run_async(upstream.auth_action(server, "signout", payload))
 
     return jsonify({}), 204
