@@ -19,22 +19,38 @@ def _is_trusted_url(url: str) -> bool:
     return any(domain in url for domain in TRUSTED_DOMAINS)
 
 
-def _extract_skin_info(properties: list) -> tuple[str | None, str, str]:
+def _extract_skin_info(properties: list) -> tuple[str | None, str, str, dict | None]:
     for prop in properties:
         if prop.get("name") == "textures":
             try:
                 decoded = json.loads(base64.b64decode(prop["value"]))
-                skin = decoded.get("textures", {}).get("SKIN", {})
+                textures = decoded.get("textures", {})
+                skin = textures.get("SKIN", {})
+                cape = textures.get("CAPE")
                 url = skin.get("url")
                 model = "slim" if skin.get("metadata", {}).get("model") == "slim" else "classic"
-                return url, model, prop.get("value", "")
+                return url, model, prop.get("value", ""), cape
             except Exception:
                 pass
-    return None, "classic", ""
+    return None, "classic", "", None
 
 
 def _build_restored_property(value: str, signature: str) -> dict:
     return {"name": "textures", "value": value, "signature": signature}
+
+
+def _merge_cape_into_restored(restored_value: str, cape: dict | None) -> str:
+    if not cape:
+        return restored_value
+    cape_url = cape.get("url", "")
+    if cape_url and not _is_trusted_url(cape_url):
+        return restored_value
+    try:
+        decoded = json.loads(base64.b64decode(restored_value))
+        decoded.setdefault("textures", {})["CAPE"] = cape
+        return base64.b64encode(json.dumps(decoded, separators=(",", ":")).encode()).decode()
+    except Exception:
+        return restored_value
 
 
 async def _download_skin(url: str) -> bytes | None:
@@ -105,7 +121,7 @@ def _get_cache_key(skin_url: str, model: str) -> str:
 
 
 def restore_skin(properties: list, method: str = "url") -> list:
-    skin_url, model, original_value = _extract_skin_info(properties)
+    skin_url, model, original_value, cape = _extract_skin_info(properties)
 
     if not skin_url:
         return properties
@@ -116,7 +132,8 @@ def restore_skin(properties: list, method: str = "url") -> list:
     cache_key = _get_cache_key(skin_url, model)
     cached = database.get_skin_cache(cache_key)
     if cached:
-        new_prop = _build_restored_property(cached["value"], cached["signature"])
+        value = _merge_cape_into_restored(cached["value"], cape)
+        new_prop = _build_restored_property(value, cached["signature"])
         return [new_prop if p.get("name") == "textures" else p for p in properties]
 
     if method == "upload":
@@ -137,7 +154,8 @@ def restore_skin(properties: list, method: str = "url") -> list:
     if texture:
         database.set_skin_cache(cache_key, texture["value"], texture["signature"])
         logger.info(f"Skin restored: {skin_url[:60]}...")
-        new_prop = _build_restored_property(texture["value"], texture["signature"])
+        value = _merge_cape_into_restored(texture["value"], cape)
+        new_prop = _build_restored_property(value, texture["signature"])
         return [new_prop if p.get("name") == "textures" else p for p in properties]
 
     logger.warning(f"Skin restore failed: {skin_url[:60]}")

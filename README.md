@@ -121,6 +121,22 @@ MC 服务器 → 本服务 /sessionserver/session/minecraft/profile/<uuid>
   │  皮肤修复（如果启用）
 ```
 
+## 已知问题：聊天签名错误
+
+Minecraft 1.19+ 引入了聊天签名机制。当第三方验证服务器的玩家发送消息时，正版玩家可能看到"消息验证错误"。
+
+**原因：** 第三方验证的玩家的聊天消息用非 Mojang 密钥签名，正版玩家客户端不信任该签名。
+
+**解决方案（任选其一）：**
+
+| 方案 | 说明 |
+|------|------|
+| 服务端配置 | `server.properties` 中设置 `enforce-secure-profile=false` |
+| 服务端插件 | 安装 [NoChatReports](https://github.com/Aizistral-Studios/NoChatReports) 插件 |
+| 客户端 Mod | 玩家安装 NoChatReports 客户端 Mod |
+
+推荐使用服务端配置方案，最简单且对所有玩家生效。
+
 ## 项目结构
 
 ```
